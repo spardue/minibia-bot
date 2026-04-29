@@ -2,6 +2,7 @@ window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
 window.__minibiaBotBundle.installPanel = function installPanel(bot) {
   const panelPositionKey = "minibiaBot.ui.panelPosition";
+  const panelCollapsedKey = "minibiaBot.ui.panelCollapsed";
 
   function destroy() {
     document.getElementById("minibia-bot-panel")?.remove();
@@ -14,6 +15,14 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
   function getSavedPanelPosition() {
     return bot.storage.get(panelPositionKey, null);
+  }
+
+  function savePanelCollapsed(collapsed) {
+    bot.storage.set(panelCollapsedKey, !!collapsed);
+  }
+
+  function getSavedPanelCollapsed() {
+    return !!bot.storage.get(panelCollapsedKey, false);
   }
 
   function refreshHomeLabel() {
@@ -92,6 +101,28 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     if (!autoEatToggle) return;
 
     autoEatToggle.checked = !!bot.eat?.status?.().running;
+  }
+
+  function setPanelCollapsed(panel, collapsed) {
+    if (!panel) return;
+
+    const body = panel.querySelector(".mb-body");
+    const toggle = panel.querySelector("#minibia-bot-collapse");
+    const nextCollapsed = !!collapsed;
+
+    panel.dataset.collapsed = nextCollapsed ? "true" : "false";
+
+    if (body) {
+      body.hidden = nextCollapsed;
+    }
+
+    if (toggle) {
+      toggle.textContent = nextCollapsed ? "+" : "−";
+      toggle.setAttribute("aria-label", nextCollapsed ? "Maximize panel" : "Minimize panel");
+      toggle.setAttribute("title", nextCollapsed ? "Maximize" : "Minimize");
+    }
+
+    savePanelCollapsed(nextCollapsed);
   }
 
   function applySavedPanelPosition(panel) {
@@ -190,11 +221,32 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       }
 
       #minibia-bot-panel .mb-title {
-        margin: 0 0 8px;
+        margin: 0;
         font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
         cursor: move;
+      }
+
+      #minibia-bot-panel .mb-titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0 0 8px;
+      }
+
+      #minibia-bot-panel .mb-icon-button {
+        width: 24px;
+        min-width: 24px;
+        padding: 2px 0;
+        border-radius: 6px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      #minibia-bot-panel[data-collapsed="true"] .mb-titlebar {
+        margin-bottom: 0;
       }
 
       #minibia-bot-panel .mb-section {
@@ -326,51 +378,57 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const panel = document.createElement("div");
     panel.id = "minibia-bot-panel";
     panel.innerHTML = `
-      <div class="mb-title">Minibia Bot</div>
-      <div class="mb-section">
-        <div class="mb-label" id="minibia-bot-home">Panic Runner Home: not set</div>
-        <div class="mb-stack">
-          <button type="button" id="minibia-bot-set-home">Set Home</button>
-          <label class="mb-toggle">
-            <input type="checkbox" id="minibia-bot-panic-unknown" />
-            <span>Unknown Player</span>
-          </label>
-          <label class="mb-toggle">
-            <input type="checkbox" id="minibia-bot-panic-health" />
-            <span>Lose Health</span>
-          </label>
-          <div class="mb-inline">
-            <input type="text" id="minibia-bot-panic-trusted-input" placeholder="Trusted name" />
-            <button type="button" class="mb-small-button" id="minibia-bot-panic-trusted-add">Add</button>
-          </div>
-          <div class="mb-list" id="minibia-bot-panic-trusted-list"></div>
-        </div>
+      <div class="mb-titlebar">
+        <div class="mb-title">Minibia Bot</div>
+        <button type="button" class="mb-icon-button" id="minibia-bot-collapse" aria-label="Minimize panel" title="Minimize">−</button>
       </div>
-      <div class="mb-section">
-        <div class="mb-actions">
-          <div class="mb-row-three">
+      <div class="mb-body">
+        <div class="mb-section">
+          <div class="mb-label" id="minibia-bot-home">Panic Runner Home: not set</div>
+          <div class="mb-stack">
+            <button type="button" id="minibia-bot-set-home">Set Home</button>
             <label class="mb-toggle">
-              <input type="checkbox" id="minibia-bot-rune-enabled" />
-              <span>Magic Level Trainer</span>
+              <input type="checkbox" id="minibia-bot-panic-unknown" />
+              <span>Unknown Player</span>
             </label>
-            <input type="text" id="minibia-bot-rune-spell" placeholder="Spell words" />
-            <input type="number" id="minibia-bot-rune-mana" min="0" placeholder="Mana" />
-          </div>
-          <div class="mb-row">
             <label class="mb-toggle">
-              <input type="checkbox" id="minibia-bot-auto-eat-enabled" />
-              <span>Auto Eat</span>
+              <input type="checkbox" id="minibia-bot-panic-health" />
+              <span>Lose Health</span>
             </label>
-            <div></div>
+            <div class="mb-inline">
+              <input type="text" id="minibia-bot-panic-trusted-input" placeholder="Trusted name" />
+              <button type="button" class="mb-small-button" id="minibia-bot-panic-trusted-add">Add</button>
+            </div>
+            <div class="mb-list" id="minibia-bot-panic-trusted-list"></div>
           </div>
         </div>
+        <div class="mb-section">
+          <div class="mb-actions">
+            <div class="mb-row-three">
+              <label class="mb-toggle">
+                <input type="checkbox" id="minibia-bot-rune-enabled" />
+                <span>Magic Level Trainer</span>
+              </label>
+              <input type="text" id="minibia-bot-rune-spell" placeholder="Spell words" />
+              <input type="number" id="minibia-bot-rune-mana" min="0" placeholder="Mana" />
+            </div>
+            <div class="mb-row">
+              <label class="mb-toggle">
+                <input type="checkbox" id="minibia-bot-auto-eat-enabled" />
+                <span>Auto Eat</span>
+              </label>
+              <div></div>
+            </div>
+          </div>
+        </div>
+        <div class="mb-note">Loaded routines: Panic Runner, magic level trainer, and auto eat.</div>
       </div>
-      <div class="mb-note">Loaded routines: Panic Runner, magic level trainer, and auto eat.</div>
     `;
     document.body.appendChild(panel);
 
     applySavedPanelPosition(panel);
     enableDrag(panel);
+    setPanelCollapsed(panel, getSavedPanelCollapsed());
 
     const spellInput = panel.querySelector("#minibia-bot-rune-spell");
     const manaInput = panel.querySelector("#minibia-bot-rune-mana");
@@ -380,6 +438,14 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const panicHealthInput = panel.querySelector("#minibia-bot-panic-health");
     const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted-input");
     const panicTrustedAddButton = panel.querySelector("#minibia-bot-panic-trusted-add");
+    const collapseButton = panel.querySelector("#minibia-bot-collapse");
+
+    if (collapseButton) {
+      collapseButton.addEventListener("click", () => {
+        const isCollapsed = panel.dataset.collapsed === "true";
+        setPanelCollapsed(panel, !isCollapsed);
+      });
+    }
 
     function addTrustedName() {
       const rawName = panicTrustedInput?.value?.trim() || "";
@@ -497,5 +563,10 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     refreshRuneStatus,
     refreshAutoEatStatus,
     getSavedPanelPosition,
+    getSavedPanelCollapsed,
+    setPanelCollapsed: (collapsed) => {
+      const panel = document.getElementById("minibia-bot-panel");
+      setPanelCollapsed(panel, collapsed);
+    },
   };
 };
