@@ -153,6 +153,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     }
 
     state.lastTriggerAt = Date.now();
+    bot.playAlarm?.();
     bot.log("panic triggered", { reason, ...details });
     return !!bot.pz?.goToHomePz?.();
   }
@@ -160,6 +161,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
   function triggerGameMasterKillSwitch(players) {
     const detectedPlayers = (players || []).map((player) => player?.name).filter(Boolean);
 
+    bot.playAlarm?.();
     bot.log("game master kill switch triggered", { players: detectedPlayers });
 
     if (bot.rune?.stop) {

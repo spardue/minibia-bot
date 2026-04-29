@@ -477,6 +477,18 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     `;
     document.body.appendChild(panel);
 
+    const unlockAudio = () => {
+      bot.unlockAudio?.();
+    };
+
+    panel.addEventListener("pointerdown", unlockAudio, { passive: true });
+    panel.addEventListener("keydown", unlockAudio);
+
+    bot.addCleanup(() => {
+      panel.removeEventListener("pointerdown", unlockAudio);
+      panel.removeEventListener("keydown", unlockAudio);
+    });
+
     applySavedPanelPosition(panel);
     enableDrag(panel);
     setPanelCollapsed(panel, getSavedPanelCollapsed());

@@ -2,6 +2,9 @@ window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
 window.__minibiaBotBundle.createBot = function createBot() {
   const cleanups = [];
+  const defaultAlarmAudioSrc = "https://upload.wikimedia.org/wikipedia/commons/transcoded/3/3f/ACA_Allertor_125_video.ogv/ACA_Allertor_125_video.ogv.480p.vp9.webm";
+  const alarmAudioSrcStorageKey = "minibiaBot.audio.alarmSrc";
+  let alarmAudio = null;
 
   function addCleanup(fn) {
     if (typeof fn === "function") {
@@ -18,6 +21,54 @@ window.__minibiaBotBundle.createBot = function createBot() {
         console.error("[minibia-bot] cleanup failed", error);
       }
     }
+  }
+
+  function getStoredAlarmAudioSrc() {
+    try {
+      const value = window.localStorage.getItem(alarmAudioSrcStorageKey);
+      return value == null ? defaultAlarmAudioSrc : JSON.parse(value);
+    } catch (error) {
+      return defaultAlarmAudioSrc;
+    }
+  }
+
+  function setStoredAlarmAudioSrc(src) {
+    window.localStorage.setItem(alarmAudioSrcStorageKey, JSON.stringify(src));
+    return src;
+  }
+
+  function destroyAlarmAudio() {
+    if (!alarmAudio) {
+      return;
+    }
+
+    try {
+      alarmAudio.pause();
+      alarmAudio.removeAttribute("src");
+      alarmAudio.load();
+    } catch (error) {
+      console.error("[minibia-bot] audio cleanup failed", error);
+    }
+
+    alarmAudio = null;
+  }
+
+  function getAlarmAudio() {
+    const src = getStoredAlarmAudioSrc();
+    if (!src) {
+      return null;
+    }
+
+    if (!alarmAudio) {
+      alarmAudio = new Audio(src);
+      alarmAudio.preload = "auto";
+    } else if (alarmAudio.src !== src) {
+      alarmAudio.pause();
+      alarmAudio = new Audio(src);
+      alarmAudio.preload = "auto";
+    }
+
+    return alarmAudio;
   }
 
   return {
@@ -40,6 +91,7 @@ window.__minibiaBotBundle.createBot = function createBot() {
         this.ui.destroy();
       }
 
+      destroyAlarmAudio();
       runCleanups();
     },
     log(...args) {
@@ -86,6 +138,77 @@ window.__minibiaBotBundle.createBot = function createBot() {
 
       button.click();
       return true;
+    },
+    getAlarmAudioSrc() {
+      return getStoredAlarmAudioSrc();
+    },
+    setAlarmAudioSrc(src) {
+      const nextSrc = String(src || "").trim();
+      if (!nextSrc) {
+        return false;
+      }
+
+      setStoredAlarmAudioSrc(nextSrc);
+      destroyAlarmAudio();
+      this.log("alarm audio updated", nextSrc);
+      return true;
+    },
+    unlockAudio() {
+      try {
+        const audio = getAlarmAudio();
+        if (!audio) {
+          return false;
+        }
+
+        audio.muted = true;
+        const playResult = audio.play();
+
+        if (playResult && typeof playResult.then === "function") {
+          playResult
+            .then(() => {
+              audio.pause();
+              audio.currentTime = 0;
+              audio.muted = false;
+            })
+            .catch((error) => {
+              audio.muted = false;
+              this.log("audio unlock failed", error?.message || error);
+            });
+        } else {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.muted = false;
+        }
+
+        return true;
+      } catch (error) {
+        console.error("[minibia-bot] audio unlock failed", error);
+        return false;
+      }
+    },
+    playAlarm() {
+      try {
+        const audio = getAlarmAudio();
+        if (!audio) {
+          return false;
+        }
+
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+        const playResult = audio.play();
+
+        if (playResult && typeof playResult.catch === "function") {
+          playResult.catch((error) => {
+            this.log("alarm playback failed", error?.message || error);
+          });
+        }
+
+        return true;
+      } catch (error) {
+        console.error("[minibia-bot] alarm failed", error);
+        return false;
+      }
     },
   };
 };
