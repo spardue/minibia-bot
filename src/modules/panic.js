@@ -17,6 +17,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
       unknownPlayerEnabled: false,
       healthLossEnabled: false,
       trustedNames: [],
+      gameMasterNames: [],
     },
     bot.storage.get(configStorageKey, {})
   );
@@ -33,6 +34,16 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     return Array.from(
       new Set(
         (config.trustedNames || [])
+          .map((name) => normalizeName(name))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  function getGameMasterNames() {
+    return Array.from(
+      new Set(
+        (config.gameMasterNames || [])
           .map((name) => normalizeName(name))
           .filter(Boolean)
       )
@@ -82,6 +93,15 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     return getVisiblePlayers().filter((creature) => {
       const name = normalizeName(creature?.name);
       return !!name && trusted.has(name);
+    });
+  }
+
+  function getVisibleGameMasters() {
+    const gameMasters = new Set(getGameMasterNames());
+
+    return getVisiblePlayers().filter((creature) => {
+      const name = normalizeName(creature?.name);
+      return !!name && gameMasters.has(name);
     });
   }
 
@@ -135,6 +155,43 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     state.lastTriggerAt = Date.now();
     bot.log("panic triggered", { reason, ...details });
     return !!bot.pz?.goToHomePz?.();
+  }
+
+  function triggerGameMasterKillSwitch(players) {
+    const detectedPlayers = (players || []).map((player) => player?.name).filter(Boolean);
+
+    bot.log("game master kill switch triggered", { players: detectedPlayers });
+
+    if (bot.rune?.stop) {
+      bot.rune.stop();
+    }
+
+    if (bot.eat?.stop) {
+      bot.eat.stop();
+    }
+
+    config.unknownPlayerEnabled = false;
+    config.healthLossEnabled = false;
+    persistConfig();
+    stop();
+
+    bot.ui?.refreshPanicStatus?.();
+    bot.ui?.refreshRuneStatus?.();
+    bot.ui?.refreshAutoEatStatus?.();
+    return true;
+  }
+
+  function checkGameMasters() {
+    if (!getGameMasterNames().length) {
+      return false;
+    }
+
+    const visibleGameMasters = getVisibleGameMasters();
+    if (!visibleGameMasters.length) {
+      return false;
+    }
+
+    return triggerGameMasterKillSwitch(visibleGameMasters);
   }
 
   function checkUnknownPlayers() {
@@ -222,14 +279,14 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     if (!state.running) return;
 
     try {
-      checkUnknownPlayers() || checkHealthLoss();
+      checkGameMasters() || checkUnknownPlayers() || checkHealthLoss();
     } finally {
       scheduleNextTick();
     }
   }
 
   function shouldRun() {
-    return !!(config.unknownPlayerEnabled || config.healthLossEnabled);
+    return !!(getGameMasterNames().length || config.unknownPlayerEnabled || config.healthLossEnabled);
   }
 
   function start() {
@@ -281,6 +338,12 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
         .filter(Boolean);
     }
 
+    if (Array.isArray(next.gameMasterNames)) {
+      next.gameMasterNames = next.gameMasterNames
+        .map((name) => String(name || "").trim())
+        .filter(Boolean);
+    }
+
     Object.assign(config, next);
     persistConfig();
     syncRunningState();
@@ -291,7 +354,11 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
   function status() {
     return {
       running: state.running,
-      config: { ...config, trustedNames: [...config.trustedNames] },
+      config: {
+        ...config,
+        trustedNames: [...config.trustedNames],
+        gameMasterNames: [...config.gameMasterNames],
+      },
       visiblePlayers: getVisiblePlayers().map((player) => ({
         id: player.id,
         name: player.name,
@@ -303,6 +370,11 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
         position: player.__position || null,
       })),
       trustedVisiblePlayers: getTrustedVisiblePlayers().map((player) => ({
+        id: player.id,
+        name: player.name,
+        position: player.__position || null,
+      })),
+      visibleGameMasters: getVisibleGameMasters().map((player) => ({
         id: player.id,
         name: player.name,
         position: player.__position || null,
@@ -324,7 +396,9 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     getVisiblePlayers,
     getUnknownVisiblePlayers,
     getTrustedVisiblePlayers,
+    getVisibleGameMasters,
     getTrustedNames,
+    getGameMasterNames,
     config,
   };
 };

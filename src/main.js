@@ -1,45 +1,56 @@
 (() => {
-  if (window.minibiaBot?.destroy) {
-    window.minibiaBot.destroy();
+  const bundle = window.__minibiaBotBundle || window.__minibiaBotReloadBundle || {};
+
+  function boot(currentBundle = bundle) {
+    if (window.minibiaBot?.destroy) {
+      window.minibiaBot.destroy();
+    }
+
+    const bot = currentBundle.createBot();
+
+    currentBundle.installPzModule(bot);
+    currentBundle.installPanicModule(bot);
+    currentBundle.installRuneModule(bot);
+    currentBundle.installAutoEatModule(bot);
+    currentBundle.installPanel(bot);
+
+    bot.ui.inject();
+
+    bot.start = (...args) => bot.rune.start(...args);
+    bot.stop = (...args) => bot.rune.stop(...args);
+    bot.reload = () => window.minibiaBotReload?.();
+    bot.status = () => ({
+      version: bot.version,
+      pz: {
+        home: bot.pz.getHomePz(),
+      },
+      panic: bot.panic.status(),
+      rune: bot.rune.status(),
+      eat: bot.eat.status(),
+    });
+
+    window.minibiaBot = bot;
+    window.pzBot = bot.pz;
+
+    console.log("[minibia-bot] ready", {
+      version: bot.version,
+      modules: ["pz", "panic", "rune", "eat", "ui"],
+    });
+    console.log("minibiaBot.reload()");
+    console.log("minibiaBot.panic.status()");
+    console.log("minibiaBot.pz.goToNearestPz()");
+    console.log("minibiaBot.pz.setHomePzCurrentSpot()");
+    console.log("minibiaBot.pz.goToHomePz()");
+    console.log("minibiaBot.rune.start()");
+    console.log("minibiaBot.rune.stop()");
+    console.log("minibiaBot.eat.start()");
+    console.log("minibiaBot.eat.stop()");
+
+    return bot;
   }
 
-  const bundle = window.__minibiaBotBundle || {};
-  const bot = bundle.createBot();
-
-  bundle.installPzModule(bot);
-  bundle.installPanicModule(bot);
-  bundle.installRuneModule(bot);
-  bundle.installAutoEatModule(bot);
-  bundle.installPanel(bot);
-
-  bot.ui.inject();
-
-  bot.start = (...args) => bot.rune.start(...args);
-  bot.stop = (...args) => bot.rune.stop(...args);
-  bot.status = () => ({
-    version: bot.version,
-    pz: {
-      home: bot.pz.getHomePz(),
-    },
-    panic: bot.panic.status(),
-    rune: bot.rune.status(),
-    eat: bot.eat.status(),
-  });
-
-  window.minibiaBot = bot;
-  window.pzBot = bot.pz;
+  window.__minibiaBotReloadBundle = bundle;
+  window.minibiaBotReload = () => boot(window.__minibiaBotReloadBundle || bundle);
   delete window.__minibiaBotBundle;
-
-  console.log("[minibia-bot] ready", {
-    version: bot.version,
-    modules: ["pz", "panic", "rune", "eat", "ui"],
-  });
-  console.log("minibiaBot.panic.status()");
-  console.log("minibiaBot.pz.goToNearestPz()");
-  console.log("minibiaBot.pz.setHomePzCurrentSpot()");
-  console.log("minibiaBot.pz.goToHomePz()");
-  console.log("minibiaBot.rune.start()");
-  console.log("minibiaBot.rune.stop()");
-  console.log("minibiaBot.eat.start()");
-  console.log("minibiaBot.eat.stop()");
+  boot(bundle);
 })();

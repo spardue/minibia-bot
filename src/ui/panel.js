@@ -87,6 +87,44 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     });
   }
 
+  function renderGameMasterNames() {
+    const list = document.getElementById("minibia-bot-panic-gm-list");
+    if (!list) return;
+
+    const gameMasterNames = bot.panic?.config?.gameMasterNames || [];
+    list.innerHTML = "";
+
+    if (!gameMasterNames.length) {
+      const empty = document.createElement("div");
+      empty.className = "mb-small-note";
+      empty.textContent = "No game master names saved.";
+      list.appendChild(empty);
+      return;
+    }
+
+    gameMasterNames.forEach((name, index) => {
+      const row = document.createElement("div");
+      row.className = "mb-list-row";
+
+      const label = document.createElement("span");
+      label.textContent = name;
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "mb-small-button";
+      removeButton.textContent = "Remove";
+      removeButton.addEventListener("click", () => {
+        const nextNames = gameMasterNames.filter((_, currentIndex) => currentIndex !== index);
+        bot.panic.updateConfig({ gameMasterNames: nextNames });
+        renderGameMasterNames();
+      });
+
+      row.appendChild(label);
+      row.appendChild(removeButton);
+      list.appendChild(row);
+    });
+  }
+
   function refreshRuneStatus() {
     const runeToggle = document.getElementById("minibia-bot-rune-enabled");
     const running = !!bot.rune?.status?.().running;
@@ -378,11 +416,14 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const panel = document.createElement("div");
     panel.id = "minibia-bot-panel";
     panel.innerHTML = `
-      <div class="mb-titlebar">
+        <div class="mb-titlebar">
         <div class="mb-title">Minibia Bot</div>
         <button type="button" class="mb-icon-button" id="minibia-bot-collapse" aria-label="Minimize panel" title="Minimize">−</button>
       </div>
       <div class="mb-body">
+        <div class="mb-actions">
+          <button type="button" id="minibia-bot-reload">Reload Bot</button>
+        </div>
         <div class="mb-section">
           <div class="mb-label" id="minibia-bot-home">Panic Runner Home: not set</div>
           <div class="mb-stack">
@@ -400,6 +441,16 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
               <button type="button" class="mb-small-button" id="minibia-bot-panic-trusted-add">Add</button>
             </div>
             <div class="mb-list" id="minibia-bot-panic-trusted-list"></div>
+          </div>
+        </div>
+        <div class="mb-section">
+          <div class="mb-label">GM Kill Switch</div>
+          <div class="mb-stack">
+            <div class="mb-inline">
+              <input type="text" id="minibia-bot-panic-gm-input" placeholder="Game master name" />
+              <button type="button" class="mb-small-button" id="minibia-bot-panic-gm-add">Add</button>
+            </div>
+            <div class="mb-list" id="minibia-bot-panic-gm-list"></div>
           </div>
         </div>
         <div class="mb-section">
@@ -434,16 +485,25 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const manaInput = panel.querySelector("#minibia-bot-rune-mana");
     const runeEnabledInput = panel.querySelector("#minibia-bot-rune-enabled");
     const autoEatEnabledInput = panel.querySelector("#minibia-bot-auto-eat-enabled");
+    const panicGmNameInput = panel.querySelector("#minibia-bot-panic-gm-input");
+    const panicGmAddButton = panel.querySelector("#minibia-bot-panic-gm-add");
     const panicUnknownInput = panel.querySelector("#minibia-bot-panic-unknown");
     const panicHealthInput = panel.querySelector("#minibia-bot-panic-health");
     const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted-input");
     const panicTrustedAddButton = panel.querySelector("#minibia-bot-panic-trusted-add");
     const collapseButton = panel.querySelector("#minibia-bot-collapse");
+    const reloadButton = panel.querySelector("#minibia-bot-reload");
 
     if (collapseButton) {
       collapseButton.addEventListener("click", () => {
         const isCollapsed = panel.dataset.collapsed === "true";
         setPanelCollapsed(panel, !isCollapsed);
+      });
+    }
+
+    if (reloadButton) {
+      reloadButton.addEventListener("click", () => {
+        window.minibiaBotReload?.();
       });
     }
 
@@ -467,6 +527,41 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       }
 
       renderTrustedNames();
+    }
+
+    function addGameMasterName() {
+      const rawName = panicGmNameInput?.value?.trim() || "";
+      if (!rawName) {
+        return;
+      }
+
+      const currentNames = bot.panic?.config?.gameMasterNames || [];
+      const exists = currentNames.some(
+        (name) => String(name).trim().toLowerCase() === rawName.toLowerCase()
+      );
+
+      if (!exists) {
+        bot.panic.updateConfig({ gameMasterNames: [...currentNames, rawName] });
+      }
+
+      if (panicGmNameInput) {
+        panicGmNameInput.value = "";
+      }
+
+      renderGameMasterNames();
+    }
+
+    if (panicGmAddButton) {
+      panicGmAddButton.addEventListener("click", addGameMasterName);
+    }
+
+    if (panicGmNameInput) {
+      panicGmNameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          addGameMasterName();
+        }
+      });
     }
 
     if (panicTrustedAddButton) {
@@ -550,6 +645,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     refreshHomeLabel();
     refreshPanicStatus();
+    renderGameMasterNames();
     renderTrustedNames();
     refreshRuneStatus();
     refreshAutoEatStatus();
