@@ -40,6 +40,44 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     }
   }
 
+  function renderTrustedNames() {
+    const list = document.getElementById("minibia-bot-panic-trusted-list");
+    if (!list) return;
+
+    const trustedNames = bot.panic?.config?.trustedNames || [];
+    list.innerHTML = "";
+
+    if (!trustedNames.length) {
+      const empty = document.createElement("div");
+      empty.className = "mb-small-note";
+      empty.textContent = "No trusted names saved.";
+      list.appendChild(empty);
+      return;
+    }
+
+    trustedNames.forEach((name, index) => {
+      const row = document.createElement("div");
+      row.className = "mb-list-row";
+
+      const label = document.createElement("span");
+      label.textContent = name;
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "mb-small-button";
+      removeButton.textContent = "Remove";
+      removeButton.addEventListener("click", () => {
+        const nextNames = trustedNames.filter((_, currentIndex) => currentIndex !== index);
+        bot.panic.updateConfig({ trustedNames: nextNames });
+        renderTrustedNames();
+      });
+
+      row.appendChild(label);
+      row.appendChild(removeButton);
+      list.appendChild(row);
+    });
+  }
+
   function refreshRuneStatus() {
     const runeToggle = document.getElementById("minibia-bot-rune-enabled");
     const running = !!bot.rune?.status?.().running;
@@ -246,6 +284,37 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         gap: 8px;
       }
 
+      #minibia-bot-panel .mb-inline {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px;
+        align-items: center;
+      }
+
+      #minibia-bot-panel .mb-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      #minibia-bot-panel .mb-list-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px;
+        align-items: center;
+        color: #d3c49d;
+      }
+
+      #minibia-bot-panel .mb-small-button {
+        width: auto;
+        padding: 4px 8px;
+        border-radius: 6px;
+      }
+
+      #minibia-bot-panel .mb-small-note {
+        color: #b7a67d;
+        font-size: 11px;
+      }
+
       #minibia-bot-panel .mb-note {
         margin-top: 8px;
         color: #b7a67d;
@@ -270,7 +339,11 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
             <input type="checkbox" id="minibia-bot-panic-health" />
             <span>Lose Health</span>
           </label>
-          <input type="text" id="minibia-bot-panic-trusted" placeholder="Trusted names: Balks, Friend" />
+          <div class="mb-inline">
+            <input type="text" id="minibia-bot-panic-trusted-input" placeholder="Trusted name" />
+            <button type="button" class="mb-small-button" id="minibia-bot-panic-trusted-add">Add</button>
+          </div>
+          <div class="mb-list" id="minibia-bot-panic-trusted-list"></div>
         </div>
       </div>
       <div class="mb-section">
@@ -305,18 +378,41 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const autoEatEnabledInput = panel.querySelector("#minibia-bot-auto-eat-enabled");
     const panicUnknownInput = panel.querySelector("#minibia-bot-panic-unknown");
     const panicHealthInput = panel.querySelector("#minibia-bot-panic-health");
-    const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted");
+    const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted-input");
+    const panicTrustedAddButton = panel.querySelector("#minibia-bot-panic-trusted-add");
+
+    function addTrustedName() {
+      const rawName = panicTrustedInput?.value?.trim() || "";
+      if (!rawName) {
+        return;
+      }
+
+      const currentNames = bot.panic?.config?.trustedNames || [];
+      const exists = currentNames.some(
+        (name) => String(name).trim().toLowerCase() === rawName.toLowerCase()
+      );
+
+      if (!exists) {
+        bot.panic.updateConfig({ trustedNames: [...currentNames, rawName] });
+      }
+
+      if (panicTrustedInput) {
+        panicTrustedInput.value = "";
+      }
+
+      renderTrustedNames();
+    }
+
+    if (panicTrustedAddButton) {
+      panicTrustedAddButton.addEventListener("click", addTrustedName);
+    }
 
     if (panicTrustedInput) {
-      panicTrustedInput.value = (bot.panic?.config?.trustedNames || []).join(", ");
-      panicTrustedInput.addEventListener("change", () => {
-        const trustedNames = panicTrustedInput.value
-          .split(",")
-          .map((name) => name.trim())
-          .filter(Boolean);
-
-        panicTrustedInput.value = trustedNames.join(", ");
-        bot.panic.updateConfig({ trustedNames });
+      panicTrustedInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          addTrustedName();
+        }
       });
     }
 
@@ -388,6 +484,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     refreshHomeLabel();
     refreshPanicStatus();
+    renderTrustedNames();
     refreshRuneStatus();
     refreshAutoEatStatus();
   }
