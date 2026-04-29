@@ -16,6 +16,7 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
       runeSpellWords: "adori vita vis",
       runeManaCost: 600,
       runeCooldownMs: 3500,
+      enabled: false,
     },
     bot.storage.get(configStorageKey, {})
   );
@@ -95,7 +96,7 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
   }
 
   function start(overrides = {}) {
-    Object.assign(config, overrides);
+    Object.assign(config, overrides, { enabled: true });
     persistConfig();
 
     if (state.running) {
@@ -117,6 +118,8 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
       state.timerId = null;
     }
 
+    config.enabled = false;
+    persistConfig();
     bot.log("rune maker stopped");
     return true;
   }
@@ -135,6 +138,10 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
     persistConfig();
     bot.log("rune config updated", { ...config });
     return { ...config };
+  }
+
+  if (config.enabled) {
+    start();
   }
 
   bot.rune = {
