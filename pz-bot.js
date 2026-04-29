@@ -293,6 +293,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     timerId: null,
     lastHealth: null,
     lastTriggerAt: 0,
+    lastDamageEventKey: null,
   };
 
   const config = Object.assign(
@@ -361,6 +362,57 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     });
   }
 
+  function getTrustedVisiblePlayers() {
+    const trusted = new Set(getTrustedNames());
+
+    return getVisiblePlayers().filter((creature) => {
+      const name = normalizeName(creature?.name);
+      return !!name && trusted.has(name);
+    });
+  }
+
+  function getRecentChannelMessages() {
+    return (window.gameClient?.interface?.channelManager?.channels || []).flatMap((channel) =>
+      (channel?.__contents || []).map((entry) => ({
+        channelName: channel?.name || null,
+        message: String(entry?.message || ""),
+        time: entry?.__time || null,
+      }))
+    );
+  }
+
+  function parseDamageMessage(entry) {
+    const match = entry.message.match(
+      /^You lose\s+(\d+)\s+hitpoints\s+due to an attack by\s+(.+?)\.$/i
+    );
+
+    if (!match) {
+      return null;
+    }
+
+    return {
+      amount: Number(match[1]),
+      attackerName: match[2].trim(),
+      time: entry.time,
+      channelName: entry.channelName,
+      key: `${entry.time || "no-time"}|${entry.message}`,
+      message: entry.message,
+    };
+  }
+
+  function getLatestDamageEvent() {
+    const messages = getRecentChannelMessages()
+      .map(parseDamageMessage)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aTime = a.time ? Date.parse(a.time) : 0;
+        const bTime = b.time ? Date.parse(b.time) : 0;
+        return bTime - aTime;
+      });
+
+    return messages[0] || null;
+  }
+
   function triggerPanic(reason, details = {}) {
     if (Date.now() - state.lastTriggerAt < config.triggerCooldownMs) {
       return false;
@@ -406,6 +458,41 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
       return false;
     }
 
+    const latestDamageEvent = getLatestDamageEvent();
+    if (latestDamageEvent && latestDamageEvent.key !== state.lastDamageEventKey) {
+      state.lastDamageEventKey = latestDamageEvent.key;
+
+      const trustedNames = new Set(getTrustedNames());
+      const attackerName = normalizeName(latestDamageEvent.attackerName);
+
+      if (attackerName && trustedNames.has(attackerName)) {
+        bot.log("ignored health-loss panic because attacker is trusted", {
+          attacker: latestDamageEvent.attackerName,
+          amount: latestDamageEvent.amount,
+          currentHealth,
+        });
+        return false;
+      }
+
+      return triggerPanic("health-loss", {
+        currentHealth,
+        attacker: latestDamageEvent.attackerName,
+        amount: latestDamageEvent.amount,
+      });
+    }
+
+    const unknownPlayers = getUnknownVisiblePlayers();
+    if (!unknownPlayers.length) {
+      const trustedPlayers = getTrustedVisiblePlayers();
+      if (trustedPlayers.length) {
+        bot.log("ignored health-loss panic because only trusted players are nearby", {
+          players: trustedPlayers.map((player) => player.name),
+          currentHealth,
+        });
+        return false;
+      }
+    }
+
     return triggerPanic("health-loss", { currentHealth });
   }
 
@@ -438,6 +525,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
 
     state.running = true;
     state.lastHealth = Number(bot.getPlayerState()?.health ?? 0);
+    state.lastDamageEventKey = getLatestDamageEvent()?.key || null;
     bot.log("panic runner started", { ...config });
     tick();
     return true;
@@ -457,6 +545,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     }
 
     state.lastHealth = null;
+    state.lastDamageEventKey = null;
     bot.log("panic runner stopped");
     return true;
   }
@@ -499,6 +588,12 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
         name: player.name,
         position: player.__position || null,
       })),
+      trustedVisiblePlayers: getTrustedVisiblePlayers().map((player) => ({
+        id: player.id,
+        name: player.name,
+        position: player.__position || null,
+      })),
+      latestDamageEvent: getLatestDamageEvent(),
       lastTriggerAt: state.lastTriggerAt,
     };
   }
@@ -514,6 +609,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     updateConfig,
     getVisiblePlayers,
     getUnknownVisiblePlayers,
+    getTrustedVisiblePlayers,
     getTrustedNames,
     config,
   };
