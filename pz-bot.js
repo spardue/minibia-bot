@@ -834,7 +834,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         top: 16px;
         right: 16px;
         z-index: 999999;
-        width: 240px;
+        width: 320px;
         padding: 12px;
         border: 1px solid rgba(224, 200, 148, 0.45);
         border-radius: 10px;
@@ -923,6 +923,18 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         min-width: 0;
       }
 
+      #minibia-bot-panel .mb-row-three {
+        display: grid;
+        grid-template-columns: auto minmax(120px, 1fr) 72px;
+        align-items: center;
+        gap: 8px;
+      }
+
+      #minibia-bot-panel .mb-row-three input[type="text"],
+      #minibia-bot-panel .mb-row-three input[type="number"] {
+        min-width: 0;
+      }
+
       #minibia-bot-panel .mb-note {
         margin-top: 8px;
         color: #b7a67d;
@@ -946,12 +958,13 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       </div>
       <div class="mb-section">
         <div class="mb-actions">
-          <div class="mb-row">
+          <div class="mb-row-three">
             <label class="mb-toggle">
               <input type="checkbox" id="minibia-bot-rune-enabled" />
-              <span>Rune Maker</span>
+              <span>Magic Level Trainer</span>
             </label>
             <input type="text" id="minibia-bot-rune-spell" placeholder="Spell words" />
+            <input type="number" id="minibia-bot-rune-mana" min="0" placeholder="Mana" />
           </div>
           <div class="mb-row">
             <label class="mb-toggle">
@@ -970,6 +983,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     enableDrag(panel);
 
     const spellInput = panel.querySelector("#minibia-bot-rune-spell");
+    const manaInput = panel.querySelector("#minibia-bot-rune-mana");
     const runeEnabledInput = panel.querySelector("#minibia-bot-rune-enabled");
     const autoEatEnabledInput = panel.querySelector("#minibia-bot-auto-eat-enabled");
 
@@ -980,13 +994,23 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       });
     }
 
+    if (manaInput) {
+      manaInput.value = String(bot.rune?.config?.runeManaCost ?? 0);
+      manaInput.addEventListener("change", () => {
+        const runeManaCost = Math.max(0, Number(manaInput.value) || 0);
+        manaInput.value = String(runeManaCost);
+        bot.rune.updateConfig({ runeManaCost });
+      });
+    }
+
     if (runeEnabledInput) {
       runeEnabledInput.checked = !!bot.rune?.status?.().running;
       runeEnabledInput.addEventListener("change", () => {
         const runeSpellWords = spellInput?.value?.trim() || bot.rune.config.runeSpellWords;
+        const runeManaCost = Math.max(0, Number(manaInput?.value) || bot.rune.config.runeManaCost || 0);
 
         if (runeEnabledInput.checked) {
-          bot.rune.start({ runeSpellWords });
+          bot.rune.start({ runeSpellWords, runeManaCost });
         } else {
           bot.rune.stop();
         }
