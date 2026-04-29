@@ -24,6 +24,10 @@ window.__minibiaBotBundle.createBot = function createBot() {
     version: "0.2.0",
     addCleanup,
     destroy() {
+      if (this.panic?.stop) {
+        this.panic.stop();
+      }
+
       if (this.rune?.stop) {
         this.rune.stop();
       }

@@ -24,6 +24,10 @@ window.__minibiaBotBundle.createBot = function createBot() {
     version: "0.2.0",
     addCleanup,
     destroy() {
+      if (this.panic?.stop) {
+        this.panic.stop();
+      }
+
       if (this.rune?.stop) {
         this.rune.stop();
       }
@@ -279,6 +283,240 @@ window.__minibiaBotBundle.installPzModule = function installPzModule(bot) {
   bot.getHomePz = getHomePz;
   bot.clearHomePz = clearHomePz;
   bot.goToHomePz = goToHomePz;
+};
+window.__minibiaBotBundle = window.__minibiaBotBundle || {};
+
+window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) {
+  const configStorageKey = "minibiaBot.panic.config";
+  const state = {
+    running: false,
+    timerId: null,
+    lastHealth: null,
+    lastTriggerAt: 0,
+  };
+
+  const config = Object.assign(
+    {
+      tickMs: 1000,
+      triggerCooldownMs: 4000,
+      unknownPlayerEnabled: false,
+      healthLossEnabled: false,
+      trustedNames: [],
+    },
+    bot.storage.get(configStorageKey, {})
+  );
+
+  function persistConfig() {
+    bot.storage.set(configStorageKey, { ...config });
+  }
+
+  function normalizeName(name) {
+    return String(name || "").trim().toLowerCase();
+  }
+
+  function getTrustedNames() {
+    return Array.from(
+      new Set(
+        (config.trustedNames || [])
+          .map((name) => normalizeName(name))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  function getVisiblePlayers() {
+    const me = bot.getPlayerPosition();
+    const myState = bot.getPlayerState();
+    const myId = window.gameClient?.player?.id;
+    const myName = normalizeName(myState?.name);
+
+    if (!me) {
+      return [];
+    }
+
+    return Object.values(window.gameClient?.world?.activeCreatures || {}).filter((creature) => {
+      if (!creature) return false;
+      if (creature.type !== 0) return false;
+      if (creature.id === myId) return false;
+
+      const name = normalizeName(creature.name);
+      if (name && name === myName) return false;
+
+      const pos = creature.__position;
+      if (!pos || pos.z !== me.z) return false;
+
+      const dx = Math.abs(pos.x - me.x);
+      const dy = Math.abs(pos.y - me.y);
+
+      return dx <= 8 && dy <= 6;
+    });
+  }
+
+  function getUnknownVisiblePlayers() {
+    const trusted = new Set(getTrustedNames());
+
+    return getVisiblePlayers().filter((creature) => {
+      const name = normalizeName(creature?.name);
+      return !!name && !trusted.has(name);
+    });
+  }
+
+  function triggerPanic(reason, details = {}) {
+    if (Date.now() - state.lastTriggerAt < config.triggerCooldownMs) {
+      return false;
+    }
+
+    state.lastTriggerAt = Date.now();
+    bot.log("panic triggered", { reason, ...details });
+    return !!bot.pz?.goToHomePz?.();
+  }
+
+  function checkUnknownPlayers() {
+    if (!config.unknownPlayerEnabled) {
+      return false;
+    }
+
+    const unknownPlayers = getUnknownVisiblePlayers();
+    if (!unknownPlayers.length) {
+      return false;
+    }
+
+    return triggerPanic("unknown-player", {
+      players: unknownPlayers.map((player) => player.name),
+    });
+  }
+
+  function checkHealthLoss() {
+    if (!config.healthLossEnabled) {
+      return false;
+    }
+
+    const playerState = bot.getPlayerState();
+    const currentHealth = Number(playerState?.health ?? 0);
+
+    if (state.lastHealth == null) {
+      state.lastHealth = currentHealth;
+      return false;
+    }
+
+    const lostHealth = currentHealth < state.lastHealth;
+    state.lastHealth = currentHealth;
+
+    if (!lostHealth) {
+      return false;
+    }
+
+    return triggerPanic("health-loss", { currentHealth });
+  }
+
+  function scheduleNextTick() {
+    if (!state.running) return;
+
+    state.timerId = window.setTimeout(() => {
+      tick();
+    }, config.tickMs);
+  }
+
+  function tick() {
+    if (!state.running) return;
+
+    try {
+      checkUnknownPlayers() || checkHealthLoss();
+    } finally {
+      scheduleNextTick();
+    }
+  }
+
+  function shouldRun() {
+    return !!(config.unknownPlayerEnabled || config.healthLossEnabled);
+  }
+
+  function start() {
+    if (state.running) {
+      return false;
+    }
+
+    state.running = true;
+    state.lastHealth = Number(bot.getPlayerState()?.health ?? 0);
+    bot.log("panic runner started", { ...config });
+    tick();
+    return true;
+  }
+
+  function stop() {
+    if (!state.running && state.timerId == null) {
+      state.lastHealth = null;
+      return false;
+    }
+
+    state.running = false;
+
+    if (state.timerId != null) {
+      window.clearTimeout(state.timerId);
+      state.timerId = null;
+    }
+
+    state.lastHealth = null;
+    bot.log("panic runner stopped");
+    return true;
+  }
+
+  function syncRunningState() {
+    if (shouldRun()) {
+      start();
+    } else {
+      stop();
+    }
+  }
+
+  function updateConfig(nextConfig = {}) {
+    const next = { ...nextConfig };
+
+    if (Array.isArray(next.trustedNames)) {
+      next.trustedNames = next.trustedNames
+        .map((name) => String(name || "").trim())
+        .filter(Boolean);
+    }
+
+    Object.assign(config, next);
+    persistConfig();
+    syncRunningState();
+    bot.log("panic runner config updated", { ...config });
+    return { ...config };
+  }
+
+  function status() {
+    return {
+      running: state.running,
+      config: { ...config, trustedNames: [...config.trustedNames] },
+      visiblePlayers: getVisiblePlayers().map((player) => ({
+        id: player.id,
+        name: player.name,
+        position: player.__position || null,
+      })),
+      unknownVisiblePlayers: getUnknownVisiblePlayers().map((player) => ({
+        id: player.id,
+        name: player.name,
+        position: player.__position || null,
+      })),
+      lastTriggerAt: state.lastTriggerAt,
+    };
+  }
+
+  if (shouldRun()) {
+    start();
+  }
+
+  bot.panic = {
+    start,
+    stop,
+    status,
+    updateConfig,
+    getVisiblePlayers,
+    getUnknownVisiblePlayers,
+    getTrustedNames,
+    config,
+  };
 };
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
@@ -737,8 +975,22 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     const home = bot.pz?.getHomePz?.();
     homeLabel.textContent = home
-      ? `Home PZ: ${home.x}, ${home.y}, ${home.z}`
-      : "Home PZ: not set";
+      ? `Panic Runner Home: ${home.x}, ${home.y}, ${home.z}`
+      : "Panic Runner Home: not set";
+  }
+
+  function refreshPanicStatus() {
+    const unknownToggle = document.getElementById("minibia-bot-panic-unknown");
+    const healthToggle = document.getElementById("minibia-bot-panic-health");
+    const status = bot.panic?.status?.();
+
+    if (unknownToggle) {
+      unknownToggle.checked = !!status?.config?.unknownPlayerEnabled;
+    }
+
+    if (healthToggle) {
+      healthToggle.checked = !!status?.config?.healthLossEnabled;
+    }
   }
 
   function refreshRuneStatus() {
@@ -942,6 +1194,11 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         min-width: 0;
       }
 
+      #minibia-bot-panel .mb-stack {
+        display: grid;
+        gap: 8px;
+      }
+
       #minibia-bot-panel .mb-note {
         margin-top: 8px;
         color: #b7a67d;
@@ -955,12 +1212,18 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     panel.innerHTML = `
       <div class="mb-title">Minibia Bot</div>
       <div class="mb-section">
-        <div class="mb-label" id="minibia-bot-home">Home PZ: not set</div>
-        <div class="mb-actions">
-          <button type="button" id="minibia-bot-set-home">Set Home PZ Here</button>
-          <button type="button" id="minibia-bot-go-home">Go Home PZ</button>
-          <button type="button" id="minibia-bot-go-nearest">Go Nearest PZ</button>
-          <button type="button" id="minibia-bot-clear-home">Clear Home PZ</button>
+        <div class="mb-label" id="minibia-bot-home">Panic Runner Home: not set</div>
+        <div class="mb-stack">
+          <button type="button" id="minibia-bot-set-home">Set Home</button>
+          <label class="mb-toggle">
+            <input type="checkbox" id="minibia-bot-panic-unknown" />
+            <span>Unknown Player</span>
+          </label>
+          <label class="mb-toggle">
+            <input type="checkbox" id="minibia-bot-panic-health" />
+            <span>Lose Health</span>
+          </label>
+          <input type="text" id="minibia-bot-panic-trusted" placeholder="Trusted names: Balks, Friend" />
         </div>
       </div>
       <div class="mb-section">
@@ -982,7 +1245,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
           </div>
         </div>
       </div>
-      <div class="mb-note">Loaded routines: PZ navigation, rune maker, and auto eat.</div>
+      <div class="mb-note">Loaded routines: Panic Runner, magic level trainer, and auto eat.</div>
     `;
     document.body.appendChild(panel);
 
@@ -993,6 +1256,22 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const manaInput = panel.querySelector("#minibia-bot-rune-mana");
     const runeEnabledInput = panel.querySelector("#minibia-bot-rune-enabled");
     const autoEatEnabledInput = panel.querySelector("#minibia-bot-auto-eat-enabled");
+    const panicUnknownInput = panel.querySelector("#minibia-bot-panic-unknown");
+    const panicHealthInput = panel.querySelector("#minibia-bot-panic-health");
+    const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted");
+
+    if (panicTrustedInput) {
+      panicTrustedInput.value = (bot.panic?.config?.trustedNames || []).join(", ");
+      panicTrustedInput.addEventListener("change", () => {
+        const trustedNames = panicTrustedInput.value
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean);
+
+        panicTrustedInput.value = trustedNames.join(", ");
+        bot.panic.updateConfig({ trustedNames });
+      });
+    }
 
     if (spellInput) {
       spellInput.value = bot.rune?.config?.runeSpellWords || "";
@@ -1039,25 +1318,29 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       });
     }
 
+    if (panicUnknownInput) {
+      panicUnknownInput.checked = !!bot.panic?.status?.().config?.unknownPlayerEnabled;
+      panicUnknownInput.addEventListener("change", () => {
+        bot.panic.updateConfig({ unknownPlayerEnabled: panicUnknownInput.checked });
+        refreshPanicStatus();
+      });
+    }
+
+    if (panicHealthInput) {
+      panicHealthInput.checked = !!bot.panic?.status?.().config?.healthLossEnabled;
+      panicHealthInput.addEventListener("change", () => {
+        bot.panic.updateConfig({ healthLossEnabled: panicHealthInput.checked });
+        refreshPanicStatus();
+      });
+    }
+
     panel.querySelector("#minibia-bot-set-home")?.addEventListener("click", () => {
       bot.pz.setHomePzCurrentSpot();
       refreshHomeLabel();
     });
 
-    panel.querySelector("#minibia-bot-go-home")?.addEventListener("click", () => {
-      bot.pz.goToHomePz();
-    });
-
-    panel.querySelector("#minibia-bot-go-nearest")?.addEventListener("click", () => {
-      bot.pz.goToNearestPz();
-    });
-
-    panel.querySelector("#minibia-bot-clear-home")?.addEventListener("click", () => {
-      bot.pz.clearHomePz();
-      refreshHomeLabel();
-    });
-
     refreshHomeLabel();
+    refreshPanicStatus();
     refreshRuneStatus();
     refreshAutoEatStatus();
   }
@@ -1066,6 +1349,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     inject,
     destroy,
     refreshHomeLabel,
+    refreshPanicStatus,
     refreshRuneStatus,
     refreshAutoEatStatus,
     getSavedPanelPosition,
@@ -1080,6 +1364,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
   const bot = bundle.createBot();
 
   bundle.installPzModule(bot);
+  bundle.installPanicModule(bot);
   bundle.installRuneModule(bot);
   bundle.installAutoEatModule(bot);
   bundle.installPanel(bot);
@@ -1093,6 +1378,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     pz: {
       home: bot.pz.getHomePz(),
     },
+    panic: bot.panic.status(),
     rune: bot.rune.status(),
     eat: bot.eat.status(),
   });
@@ -1103,8 +1389,9 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
   console.log("[minibia-bot] ready", {
     version: bot.version,
-    modules: ["pz", "rune", "eat", "ui"],
+    modules: ["pz", "panic", "rune", "eat", "ui"],
   });
+  console.log("minibiaBot.panic.status()");
   console.log("minibiaBot.pz.goToNearestPz()");
   console.log("minibiaBot.pz.setHomePzCurrentSpot()");
   console.log("minibiaBot.pz.goToHomePz()");

@@ -7,6 +7,7 @@
   const bot = bundle.createBot();
 
   bundle.installPzModule(bot);
+  bundle.installPanicModule(bot);
   bundle.installRuneModule(bot);
   bundle.installAutoEatModule(bot);
   bundle.installPanel(bot);
@@ -20,6 +21,7 @@
     pz: {
       home: bot.pz.getHomePz(),
     },
+    panic: bot.panic.status(),
     rune: bot.rune.status(),
     eat: bot.eat.status(),
   });
@@ -30,8 +32,9 @@
 
   console.log("[minibia-bot] ready", {
     version: bot.version,
-    modules: ["pz", "rune", "eat", "ui"],
+    modules: ["pz", "panic", "rune", "eat", "ui"],
   });
+  console.log("minibiaBot.panic.status()");
   console.log("minibiaBot.pz.goToNearestPz()");
   console.log("minibiaBot.pz.setHomePzCurrentSpot()");
   console.log("minibiaBot.pz.goToHomePz()");

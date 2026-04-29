@@ -22,8 +22,22 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     const home = bot.pz?.getHomePz?.();
     homeLabel.textContent = home
-      ? `Home PZ: ${home.x}, ${home.y}, ${home.z}`
-      : "Home PZ: not set";
+      ? `Panic Runner Home: ${home.x}, ${home.y}, ${home.z}`
+      : "Panic Runner Home: not set";
+  }
+
+  function refreshPanicStatus() {
+    const unknownToggle = document.getElementById("minibia-bot-panic-unknown");
+    const healthToggle = document.getElementById("minibia-bot-panic-health");
+    const status = bot.panic?.status?.();
+
+    if (unknownToggle) {
+      unknownToggle.checked = !!status?.config?.unknownPlayerEnabled;
+    }
+
+    if (healthToggle) {
+      healthToggle.checked = !!status?.config?.healthLossEnabled;
+    }
   }
 
   function refreshRuneStatus() {
@@ -227,6 +241,11 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         min-width: 0;
       }
 
+      #minibia-bot-panel .mb-stack {
+        display: grid;
+        gap: 8px;
+      }
+
       #minibia-bot-panel .mb-note {
         margin-top: 8px;
         color: #b7a67d;
@@ -240,12 +259,18 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     panel.innerHTML = `
       <div class="mb-title">Minibia Bot</div>
       <div class="mb-section">
-        <div class="mb-label" id="minibia-bot-home">Home PZ: not set</div>
-        <div class="mb-actions">
-          <button type="button" id="minibia-bot-set-home">Set Home PZ Here</button>
-          <button type="button" id="minibia-bot-go-home">Go Home PZ</button>
-          <button type="button" id="minibia-bot-go-nearest">Go Nearest PZ</button>
-          <button type="button" id="minibia-bot-clear-home">Clear Home PZ</button>
+        <div class="mb-label" id="minibia-bot-home">Panic Runner Home: not set</div>
+        <div class="mb-stack">
+          <button type="button" id="minibia-bot-set-home">Set Home</button>
+          <label class="mb-toggle">
+            <input type="checkbox" id="minibia-bot-panic-unknown" />
+            <span>Unknown Player</span>
+          </label>
+          <label class="mb-toggle">
+            <input type="checkbox" id="minibia-bot-panic-health" />
+            <span>Lose Health</span>
+          </label>
+          <input type="text" id="minibia-bot-panic-trusted" placeholder="Trusted names: Balks, Friend" />
         </div>
       </div>
       <div class="mb-section">
@@ -267,7 +292,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
           </div>
         </div>
       </div>
-      <div class="mb-note">Loaded routines: PZ navigation, rune maker, and auto eat.</div>
+      <div class="mb-note">Loaded routines: Panic Runner, magic level trainer, and auto eat.</div>
     `;
     document.body.appendChild(panel);
 
@@ -278,6 +303,22 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const manaInput = panel.querySelector("#minibia-bot-rune-mana");
     const runeEnabledInput = panel.querySelector("#minibia-bot-rune-enabled");
     const autoEatEnabledInput = panel.querySelector("#minibia-bot-auto-eat-enabled");
+    const panicUnknownInput = panel.querySelector("#minibia-bot-panic-unknown");
+    const panicHealthInput = panel.querySelector("#minibia-bot-panic-health");
+    const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted");
+
+    if (panicTrustedInput) {
+      panicTrustedInput.value = (bot.panic?.config?.trustedNames || []).join(", ");
+      panicTrustedInput.addEventListener("change", () => {
+        const trustedNames = panicTrustedInput.value
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean);
+
+        panicTrustedInput.value = trustedNames.join(", ");
+        bot.panic.updateConfig({ trustedNames });
+      });
+    }
 
     if (spellInput) {
       spellInput.value = bot.rune?.config?.runeSpellWords || "";
@@ -324,25 +365,29 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       });
     }
 
+    if (panicUnknownInput) {
+      panicUnknownInput.checked = !!bot.panic?.status?.().config?.unknownPlayerEnabled;
+      panicUnknownInput.addEventListener("change", () => {
+        bot.panic.updateConfig({ unknownPlayerEnabled: panicUnknownInput.checked });
+        refreshPanicStatus();
+      });
+    }
+
+    if (panicHealthInput) {
+      panicHealthInput.checked = !!bot.panic?.status?.().config?.healthLossEnabled;
+      panicHealthInput.addEventListener("change", () => {
+        bot.panic.updateConfig({ healthLossEnabled: panicHealthInput.checked });
+        refreshPanicStatus();
+      });
+    }
+
     panel.querySelector("#minibia-bot-set-home")?.addEventListener("click", () => {
       bot.pz.setHomePzCurrentSpot();
       refreshHomeLabel();
     });
 
-    panel.querySelector("#minibia-bot-go-home")?.addEventListener("click", () => {
-      bot.pz.goToHomePz();
-    });
-
-    panel.querySelector("#minibia-bot-go-nearest")?.addEventListener("click", () => {
-      bot.pz.goToNearestPz();
-    });
-
-    panel.querySelector("#minibia-bot-clear-home")?.addEventListener("click", () => {
-      bot.pz.clearHomePz();
-      refreshHomeLabel();
-    });
-
     refreshHomeLabel();
+    refreshPanicStatus();
     refreshRuneStatus();
     refreshAutoEatStatus();
   }
@@ -351,6 +396,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     inject,
     destroy,
     refreshHomeLabel,
+    refreshPanicStatus,
     refreshRuneStatus,
     refreshAutoEatStatus,
     getSavedPanelPosition,
