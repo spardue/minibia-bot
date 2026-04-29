@@ -28,8 +28,8 @@ window.__minibiaBotBundle.createBot = function createBot() {
         this.rune.stop();
       }
 
-      if (this.rune?.stopAutoEat) {
-        this.rune.stopAutoEat();
+      if (this.eat?.stop) {
+        this.eat.stop();
       }
 
       if (this.ui?.destroy) {
@@ -287,10 +287,7 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
   const state = {
     running: false,
     timerId: null,
-    autoEatRunning: false,
-    autoEatTimerId: null,
     lastRuneAt: 0,
-    lastFoodAt: 0,
   };
 
   const config = Object.assign(
@@ -298,9 +295,6 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
       tickMs: 1000,
       minHpPercent: 50,
       minFoodSeconds: 30,
-      autoEatEnabled: false,
-      eatHotbarSlot: 10,
-      eatCooldownMs: 60000,
       runeSpellWords: "adori vita vis",
       runeManaCost: 600,
       runeCooldownMs: 3500,
@@ -313,14 +307,14 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
   }
 
   function readStats() {
-    const state = bot.getPlayerState();
+    const playerState = bot.getPlayerState();
 
-    const hp = state
-      ? { current: state.health ?? 0, max: state.maxHealth ?? 0 }
+    const hp = playerState
+      ? { current: playerState.health ?? 0, max: playerState.maxHealth ?? 0 }
       : null;
 
-    const mana = state
-      ? { current: state.mana ?? 0, max: state.maxMana ?? 0 }
+    const mana = playerState
+      ? { current: playerState.mana ?? 0, max: playerState.maxMana ?? 0 }
       : null;
 
     const foodText =
@@ -354,6 +348,131 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
     return enoughHp && enoughMana && enoughFood && cooldownReady;
   }
 
+  function tryMakeRune() {
+    if (!canMakeRune()) {
+      return false;
+    }
+
+    const sent = bot.sendChat(config.runeSpellWords);
+    if (sent) {
+      state.lastRuneAt = Date.now();
+    }
+
+    return sent;
+  }
+
+  function scheduleNextTick() {
+    if (!state.running) return;
+
+    state.timerId = window.setTimeout(() => {
+      tick();
+    }, config.tickMs);
+  }
+
+  function tick() {
+    if (!state.running) return;
+
+    tryMakeRune();
+    scheduleNextTick();
+  }
+
+  function start(overrides = {}) {
+    Object.assign(config, overrides);
+    persistConfig();
+
+    if (state.running) {
+      bot.log("rune maker already running");
+      return false;
+    }
+
+    state.running = true;
+    bot.log("rune maker started", { ...config });
+    tick();
+    return true;
+  }
+
+  function stop() {
+    state.running = false;
+
+    if (state.timerId != null) {
+      window.clearTimeout(state.timerId);
+      state.timerId = null;
+    }
+
+    bot.log("rune maker stopped");
+    return true;
+  }
+
+  function status() {
+    return {
+      running: state.running,
+      config: { ...config },
+      stats: readStats(),
+      lastRuneAt: state.lastRuneAt,
+    };
+  }
+
+  function updateConfig(nextConfig = {}) {
+    Object.assign(config, nextConfig);
+    persistConfig();
+    bot.log("rune config updated", { ...config });
+    return { ...config };
+  }
+
+  bot.rune = {
+    start,
+    stop,
+    status,
+    readStats,
+    canMakeRune,
+    tryMakeRune,
+    config,
+    updateConfig,
+  };
+
+  bot.startRuneLoop = start;
+  bot.stopRuneLoop = stop;
+};
+window.__minibiaBotBundle = window.__minibiaBotBundle || {};
+
+window.__minibiaBotBundle.installAutoEatModule = function installAutoEatModule(bot) {
+  const configStorageKey = "minibiaBot.eat.config";
+  const state = {
+    running: false,
+    timerId: null,
+    lastFoodAt: 0,
+  };
+
+  const config = Object.assign(
+    {
+      tickMs: 1000,
+      eatCooldownMs: 60000,
+      eatHotbarSlot: 10,
+      enabled: false,
+    },
+    bot.storage.get(configStorageKey, {})
+  );
+
+  function persistConfig() {
+    bot.storage.set(configStorageKey, { ...config });
+  }
+
+  function readFoodTimer() {
+    const foodText =
+      document.querySelector('#skill-window div[skill="food"] .skill')?.textContent?.trim() ||
+      null;
+
+    if (!foodText) return null;
+
+    const match = foodText.match(/^(\d{1,2}):(\d{2})$/);
+    return match
+      ? {
+          text: foodText,
+          seconds: Number(match[1]) * 60 + Number(match[2]),
+        }
+      : { text: foodText, seconds: null };
+  }
+
   function isSated() {
     const player = window.gameClient?.player;
     const conditions = player?.conditions;
@@ -362,7 +481,7 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
       return conditions.has(conditions.SATED);
     }
 
-    const food = readStats().food;
+    const food = readFoodTimer();
     if (food?.seconds != null) {
       return food.seconds > 0;
     }
@@ -470,7 +589,7 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
   }
 
   function tryEat() {
-    if (!config.autoEatEnabled) {
+    if (!config.enabled) {
       return false;
     }
 
@@ -497,61 +616,33 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
     return clicked;
   }
 
-  function tryMakeRune() {
-    if (!canMakeRune()) {
-      return false;
-    }
-
-    const sent = bot.sendChat(config.runeSpellWords);
-    if (sent) {
-      state.lastRuneAt = Date.now();
-    }
-
-    return sent;
-  }
-
   function scheduleNextTick() {
     if (!state.running) return;
 
     state.timerId = window.setTimeout(() => {
-      tickRuneLoop();
+      tick();
     }, config.tickMs);
   }
 
-  function tickRuneLoop() {
+  function tick() {
     if (!state.running) return;
 
-    tryMakeRune();
+    tryEat();
     scheduleNextTick();
   }
 
-  function scheduleNextAutoEatTick() {
-    if (!state.autoEatRunning) return;
-
-    state.autoEatTimerId = window.setTimeout(() => {
-      tickAutoEatLoop();
-    }, config.tickMs);
-  }
-
-  function tickAutoEatLoop() {
-    if (!state.autoEatRunning) return;
-
-    tryEat();
-    scheduleNextAutoEatTick();
-  }
-
   function start(overrides = {}) {
-    Object.assign(config, overrides);
+    Object.assign(config, overrides, { enabled: true });
     persistConfig();
 
     if (state.running) {
-      bot.log("rune loop already running");
+      bot.log("auto eat already running");
       return false;
     }
 
     state.running = true;
-    bot.log("rune loop started", { ...config });
-    tickRuneLoop();
+    bot.log("auto eat started", { eatCooldownMs: config.eatCooldownMs });
+    tick();
     return true;
   }
 
@@ -563,34 +654,7 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
       state.timerId = null;
     }
 
-    bot.log("rune loop stopped");
-    return true;
-  }
-
-  function startAutoEat(overrides = {}) {
-    Object.assign(config, overrides, { autoEatEnabled: true });
-    persistConfig();
-
-    if (state.autoEatRunning) {
-      bot.log("auto eat already running");
-      return false;
-    }
-
-    state.autoEatRunning = true;
-    bot.log("auto eat started", { eatCooldownMs: config.eatCooldownMs });
-    tickAutoEatLoop();
-    return true;
-  }
-
-  function stopAutoEat() {
-    state.autoEatRunning = false;
-
-    if (state.autoEatTimerId != null) {
-      window.clearTimeout(state.autoEatTimerId);
-      state.autoEatTimerId = null;
-    }
-
-    config.autoEatEnabled = false;
+    config.enabled = false;
     persistConfig();
     bot.log("auto eat stopped");
     return true;
@@ -599,10 +663,7 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
   function status() {
     return {
       running: state.running,
-      autoEatRunning: state.autoEatRunning,
       config: { ...config },
-      stats: readStats(),
-      lastRuneAt: state.lastRuneAt,
       lastFoodAt: state.lastFoodAt,
       isSated: isSated(),
     };
@@ -611,36 +672,39 @@ window.__minibiaBotBundle.installRuneModule = function installRuneModule(bot) {
   function updateConfig(nextConfig = {}) {
     Object.assign(config, nextConfig);
     persistConfig();
-    bot.log("rune config updated", { ...config });
+    bot.log("auto eat config updated", { ...config });
     return { ...config };
   }
 
-  if (config.autoEatEnabled) {
-    startAutoEat();
+  if (config.enabled) {
+    start();
   }
 
-  bot.rune = {
+  bot.eat = {
     start,
     stop,
-    startAutoEat,
-    stopAutoEat,
     status,
-    readStats,
-    canMakeRune,
-    tryMakeRune,
+    updateConfig,
     isSated,
     tryEat,
     getOpenContainers,
     getFoodSlots,
     eatFromOpenContainers,
     config,
-    updateConfig,
   };
 
-  bot.startRuneLoop = start;
-  bot.stopRuneLoop = stop;
-  bot.startAutoEat = startAutoEat;
-  bot.stopAutoEat = stopAutoEat;
+  bot.startAutoEat = start;
+  bot.stopAutoEat = stop;
+
+  if (bot.rune) {
+    bot.rune.startAutoEat = start;
+    bot.rune.stopAutoEat = stop;
+    bot.rune.tryEat = tryEat;
+    bot.rune.getOpenContainers = getOpenContainers;
+    bot.rune.getFoodSlots = getFoodSlots;
+    bot.rune.eatFromOpenContainers = eatFromOpenContainers;
+    bot.rune.isSated = isSated;
+  }
 };
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
@@ -683,7 +747,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const autoEatToggle = document.getElementById("minibia-bot-auto-eat-enabled");
     if (!autoEatToggle) return;
 
-    autoEatToggle.checked = !!bot.rune?.status?.().autoEatRunning;
+    autoEatToggle.checked = !!bot.eat?.status?.().running;
   }
 
   function applySavedPanelPosition(panel) {
@@ -932,12 +996,12 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     }
 
     if (autoEatEnabledInput) {
-      autoEatEnabledInput.checked = !!bot.rune?.status?.().autoEatRunning;
+      autoEatEnabledInput.checked = !!bot.eat?.status?.().running;
       autoEatEnabledInput.addEventListener("change", () => {
         if (autoEatEnabledInput.checked) {
-          bot.rune.startAutoEat();
+          bot.eat.start();
         } else {
-          bot.rune.stopAutoEat();
+          bot.eat.stop();
         }
 
         refreshAutoEatStatus();
@@ -986,6 +1050,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
   bundle.installPzModule(bot);
   bundle.installRuneModule(bot);
+  bundle.installAutoEatModule(bot);
   bundle.installPanel(bot);
 
   bot.ui.inject();
@@ -998,6 +1063,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       home: bot.pz.getHomePz(),
     },
     rune: bot.rune.status(),
+    eat: bot.eat.status(),
   });
 
   window.minibiaBot = bot;
@@ -1006,11 +1072,13 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
   console.log("[minibia-bot] ready", {
     version: bot.version,
-    modules: ["pz", "rune", "ui"],
+    modules: ["pz", "rune", "eat", "ui"],
   });
   console.log("minibiaBot.pz.goToNearestPz()");
   console.log("minibiaBot.pz.setHomePzCurrentSpot()");
   console.log("minibiaBot.pz.goToHomePz()");
   console.log("minibiaBot.rune.start()");
   console.log("minibiaBot.rune.stop()");
+  console.log("minibiaBot.eat.start()");
+  console.log("minibiaBot.eat.stop()");
 })();

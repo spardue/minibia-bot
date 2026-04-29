@@ -39,7 +39,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const autoEatToggle = document.getElementById("minibia-bot-auto-eat-enabled");
     if (!autoEatToggle) return;
 
-    autoEatToggle.checked = !!bot.rune?.status?.().autoEatRunning;
+    autoEatToggle.checked = !!bot.eat?.status?.().running;
   }
 
   function applySavedPanelPosition(panel) {
@@ -288,12 +288,12 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     }
 
     if (autoEatEnabledInput) {
-      autoEatEnabledInput.checked = !!bot.rune?.status?.().autoEatRunning;
+      autoEatEnabledInput.checked = !!bot.eat?.status?.().running;
       autoEatEnabledInput.addEventListener("change", () => {
         if (autoEatEnabledInput.checked) {
-          bot.rune.startAutoEat();
+          bot.eat.start();
         } else {
-          bot.rune.stopAutoEat();
+          bot.eat.stop();
         }
 
         refreshAutoEatStatus();

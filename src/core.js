@@ -28,8 +28,8 @@ window.__minibiaBotBundle.createBot = function createBot() {
         this.rune.stop();
       }
 
-      if (this.rune?.stopAutoEat) {
-        this.rune.stopAutoEat();
+      if (this.eat?.stop) {
+        this.eat.stop();
       }
 
       if (this.ui?.destroy) {
