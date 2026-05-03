@@ -409,6 +409,91 @@ window.__minibiaBotBundle.installPzModule = function installPzModule(bot) {
 };
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
+window.__minibiaBotBundle.installVisibilityModule = function installVisibilityModule(bot) {
+  function normalizeName(name) {
+    return String(name || "").trim().toLowerCase();
+  }
+
+  function isWithinVisibleRange(me, pos) {
+    if (!me || !pos) {
+      return false;
+    }
+
+    const dx = Math.abs(pos.x - me.x);
+    const dy = Math.abs(pos.y - me.y);
+    return dx <= 8 && dy <= 6;
+  }
+
+  function getVisibleCreatures() {
+    const me = bot.getPlayerPosition();
+    const myState = bot.getPlayerState();
+    const myId = window.gameClient?.player?.id;
+    const myName = normalizeName(myState?.name);
+
+    if (!me) {
+      return [];
+    }
+
+    return Object.values(window.gameClient?.world?.activeCreatures || {}).filter((creature) => {
+      if (!creature) return false;
+      if (creature.id === myId) return false;
+
+      const name = normalizeName(creature.name);
+      if (name && name === myName) return false;
+
+      return isWithinVisibleRange(me, creature.__position);
+    });
+  }
+
+  function getVisiblePlayers(options = {}) {
+    const { sameFloorOnly = false } = options;
+    const me = bot.getPlayerPosition();
+    if (!me) {
+      return [];
+    }
+
+    return getVisibleCreatures().filter((creature) => {
+      if (creature?.type !== 0) {
+        return false;
+      }
+
+      if (!sameFloorOnly) {
+        return true;
+      }
+
+      return creature.__position?.z === me.z;
+    });
+  }
+
+  function status() {
+    return {
+      visibleCreatures: getVisibleCreatures().map((creature) => ({
+        id: creature.id,
+        name: creature.name,
+        type: creature.type,
+        position: creature.__position || null,
+      })),
+      visiblePlayers: getVisiblePlayers().map((player) => ({
+        id: player.id,
+        name: player.name,
+        position: player.__position || null,
+      })),
+      visiblePlayersCurrentFloor: getVisiblePlayers({ sameFloorOnly: true }).map((player) => ({
+        id: player.id,
+        name: player.name,
+        position: player.__position || null,
+      })),
+    };
+  }
+
+  bot.visibility = {
+    getVisibleCreatures,
+    getVisiblePlayers,
+    status,
+  };
+};
+window.__minibiaBotBundle = window.__minibiaBotBundle || {};
+
 window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) {
   const configStorageKey = "minibiaBot.panic.config";
   const state = {
@@ -459,47 +544,8 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     );
   }
 
-  function isWithinVisibleRange(me, pos) {
-    if (!me || !pos) {
-      return false;
-    }
-
-    const dx = Math.abs(pos.x - me.x);
-    const dy = Math.abs(pos.y - me.y);
-    return dx <= 8 && dy <= 6;
-  }
-
-  function getVisibleCreatures() {
-    const me = bot.getPlayerPosition();
-    const myState = bot.getPlayerState();
-    const myId = window.gameClient?.player?.id;
-    const myName = normalizeName(myState?.name);
-
-    if (!me) {
-      return [];
-    }
-
-    return Object.values(window.gameClient?.world?.activeCreatures || {}).filter((creature) => {
-      if (!creature) return false;
-      if (creature.id === myId) return false;
-
-      const name = normalizeName(creature.name);
-      if (name && name === myName) return false;
-
-      const pos = creature.__position;
-      return isWithinVisibleRange(me, pos);
-    });
-  }
-
   function getVisiblePlayers() {
-    const me = bot.getPlayerPosition();
-    if (!me) {
-      return [];
-    }
-
-    return getVisibleCreatures().filter(
-      (creature) => creature?.type === 0 && creature.__position?.z === me.z
-    );
+    return bot.visibility?.getVisiblePlayers?.({ sameFloorOnly: true }) || [];
   }
 
   function getUnknownVisiblePlayers() {
@@ -785,12 +831,6 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
         trustedNames: [...config.trustedNames],
         gameMasterNames: [...config.gameMasterNames],
       },
-      visibleCreatures: getVisibleCreatures().map((creature) => ({
-        id: creature.id,
-        name: creature.name,
-        type: creature.type,
-        position: creature.__position || null,
-      })),
       visiblePlayers: getVisiblePlayers().map((player) => ({
         id: player.id,
         name: player.name,
@@ -825,7 +865,6 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     stop,
     status,
     updateConfig,
-    getVisibleCreatures,
     getVisiblePlayers,
     getUnknownVisiblePlayers,
     getTrustedVisiblePlayers,
@@ -1416,7 +1455,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     if (!list) return;
 
     const me = bot.getPlayerPosition?.();
-    const creatures = bot.panic?.status?.().visibleCreatures || [];
+    const creatures = bot.visibility?.status?.().visibleCreatures || [];
     list.innerHTML = "";
 
     if (!me) {
@@ -1638,7 +1677,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
       #minibia-bot-panel .mb-body {
         display: grid;
-        grid-template-columns: 240px minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) 240px;
         gap: 12px;
         align-items: start;
       }
@@ -1834,12 +1873,6 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         <button type="button" class="mb-icon-button" id="minibia-bot-collapse" aria-label="Minimize panel" title="Minimize">−</button>
       </div>
       <div class="mb-body">
-        <div class="mb-side-column">
-          <div class="mb-section mb-column-section">
-            <div class="mb-label">Visible Creatures</div>
-            <div class="mb-list" id="minibia-bot-visible-creatures-list"></div>
-          </div>
-        </div>
         <div class="mb-main-column">
           <div class="mb-actions mb-column-section">
             <button type="button" id="minibia-bot-reload">Reload Bot</button>
@@ -1893,6 +1926,12 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
             </div>
           </div>
           <div class="mb-note">Loaded routines: Panic Runner, magic level trainer, and auto eat.</div>
+        </div>
+        <div class="mb-side-column">
+          <div class="mb-section mb-column-section">
+            <div class="mb-label">Visible Creatures</div>
+            <div class="mb-list" id="minibia-bot-visible-creatures-list"></div>
+          </div>
         </div>
       </div>
     `;
@@ -2117,6 +2156,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const bot = currentBundle.createBot();
 
     currentBundle.installPzModule(bot);
+    currentBundle.installVisibilityModule(bot);
     currentBundle.installPanicModule(bot);
     currentBundle.installRuneModule(bot);
     currentBundle.installAutoEatModule(bot);
@@ -2132,6 +2172,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       pz: {
         home: bot.pz.getHomePz(),
       },
+      visibility: bot.visibility.status(),
       panic: bot.panic.status(),
       rune: bot.rune.status(),
       eat: bot.eat.status(),
@@ -2142,9 +2183,10 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     console.log("[minibia-bot] ready", {
       version: bot.version,
-      modules: ["pz", "panic", "rune", "eat", "ui"],
+      modules: ["pz", "visibility", "panic", "rune", "eat", "ui"],
     });
     console.log("minibiaBot.reload()");
+    console.log("minibiaBot.visibility.status()");
     console.log("minibiaBot.panic.status()");
     console.log("minibiaBot.pz.goToNearestPz()");
     console.log("minibiaBot.pz.setHomePzCurrentSpot()");

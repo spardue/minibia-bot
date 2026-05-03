@@ -50,47 +50,8 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     );
   }
 
-  function isWithinVisibleRange(me, pos) {
-    if (!me || !pos) {
-      return false;
-    }
-
-    const dx = Math.abs(pos.x - me.x);
-    const dy = Math.abs(pos.y - me.y);
-    return dx <= 8 && dy <= 6;
-  }
-
-  function getVisibleCreatures() {
-    const me = bot.getPlayerPosition();
-    const myState = bot.getPlayerState();
-    const myId = window.gameClient?.player?.id;
-    const myName = normalizeName(myState?.name);
-
-    if (!me) {
-      return [];
-    }
-
-    return Object.values(window.gameClient?.world?.activeCreatures || {}).filter((creature) => {
-      if (!creature) return false;
-      if (creature.id === myId) return false;
-
-      const name = normalizeName(creature.name);
-      if (name && name === myName) return false;
-
-      const pos = creature.__position;
-      return isWithinVisibleRange(me, pos);
-    });
-  }
-
   function getVisiblePlayers() {
-    const me = bot.getPlayerPosition();
-    if (!me) {
-      return [];
-    }
-
-    return getVisibleCreatures().filter(
-      (creature) => creature?.type === 0 && creature.__position?.z === me.z
-    );
+    return bot.visibility?.getVisiblePlayers?.({ sameFloorOnly: true }) || [];
   }
 
   function getUnknownVisiblePlayers() {
@@ -376,12 +337,6 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
         trustedNames: [...config.trustedNames],
         gameMasterNames: [...config.gameMasterNames],
       },
-      visibleCreatures: getVisibleCreatures().map((creature) => ({
-        id: creature.id,
-        name: creature.name,
-        type: creature.type,
-        position: creature.__position || null,
-      })),
       visiblePlayers: getVisiblePlayers().map((player) => ({
         id: player.id,
         name: player.name,
@@ -416,7 +371,6 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
     stop,
     status,
     updateConfig,
-    getVisibleCreatures,
     getVisiblePlayers,
     getUnknownVisiblePlayers,
     getTrustedVisiblePlayers,

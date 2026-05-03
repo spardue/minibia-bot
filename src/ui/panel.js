@@ -146,7 +146,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     if (!list) return;
 
     const me = bot.getPlayerPosition?.();
-    const creatures = bot.panic?.status?.().visibleCreatures || [];
+    const creatures = bot.visibility?.status?.().visibleCreatures || [];
     list.innerHTML = "";
 
     if (!me) {
@@ -368,7 +368,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
       #minibia-bot-panel .mb-body {
         display: grid;
-        grid-template-columns: 240px minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) 240px;
         gap: 12px;
         align-items: start;
       }
@@ -564,12 +564,6 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         <button type="button" class="mb-icon-button" id="minibia-bot-collapse" aria-label="Minimize panel" title="Minimize">−</button>
       </div>
       <div class="mb-body">
-        <div class="mb-side-column">
-          <div class="mb-section mb-column-section">
-            <div class="mb-label">Visible Creatures</div>
-            <div class="mb-list" id="minibia-bot-visible-creatures-list"></div>
-          </div>
-        </div>
         <div class="mb-main-column">
           <div class="mb-actions mb-column-section">
             <button type="button" id="minibia-bot-reload">Reload Bot</button>
@@ -623,6 +617,12 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
             </div>
           </div>
           <div class="mb-note">Loaded routines: Panic Runner, magic level trainer, and auto eat.</div>
+        </div>
+        <div class="mb-side-column">
+          <div class="mb-section mb-column-section">
+            <div class="mb-label">Visible Creatures</div>
+            <div class="mb-list" id="minibia-bot-visible-creatures-list"></div>
+          </div>
         </div>
       </div>
     `;
