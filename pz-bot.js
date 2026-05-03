@@ -419,7 +419,7 @@ window.__minibiaBotBundle.installXrayModule = function installXrayModule(bot) {
   };
   const config = Object.assign(
     {
-      overlayEnabled: true,
+      overlayEnabled: false,
     },
     bot.storage.get(configStorageKey, {})
   );
