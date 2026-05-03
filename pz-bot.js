@@ -410,12 +410,23 @@ window.__minibiaBotBundle.installPzModule = function installPzModule(bot) {
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
 window.__minibiaBotBundle.installVisibilityModule = function installVisibilityModule(bot) {
+  const configStorageKey = "minibiaBot.visibility.config";
   const overlayRootId = "minibia-bot-visibility-overlay";
   const overlayStyleId = "minibia-bot-visibility-overlay-style";
   const overlayState = {
     running: false,
     timerId: null,
   };
+  const config = Object.assign(
+    {
+      overlayEnabled: true,
+    },
+    bot.storage.get(configStorageKey, {})
+  );
+
+  function persistConfig() {
+    bot.storage.set(configStorageKey, { ...config });
+  }
 
   function normalizeName(name) {
     return String(name || "").trim().toLowerCase();
@@ -470,6 +481,47 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
 
       return creature.__position?.z === me.z;
     });
+  }
+
+  function readCreatureHealth(creature) {
+    if (!creature) {
+      return null;
+    }
+
+    const current = [
+      creature.health,
+      creature.hp,
+      creature.currentHealth,
+      creature.state?.health,
+    ].find((value) => Number.isFinite(Number(value)));
+
+    const max = [
+      creature.maxHealth,
+      creature.maxHp,
+      creature.maximumHealth,
+      creature.state?.maxHealth,
+    ].find((value) => Number.isFinite(Number(value)));
+
+    const percent = [
+      creature.healthPercent,
+      creature.hpPercent,
+      creature.healthpercentage,
+      creature.state?.healthPercent,
+    ].find((value) => Number.isFinite(Number(value)));
+
+    if (current != null && max != null) {
+      return `${Number(current)}/${Number(max)} HP`;
+    }
+
+    if (percent != null) {
+      return `${Math.round(Number(percent))}% HP`;
+    }
+
+    if (current != null) {
+      return `${Number(current)} HP`;
+    }
+
+    return null;
   }
 
   function getOverlayCreatures() {
@@ -566,9 +618,12 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
       const dy = pos.y - me.y;
       const floorOffset = me.z - pos.z;
       const floorLabel = floorOffset === 0 ? "0" : floorOffset > 0 ? `+${floorOffset}` : `${floorOffset}`;
+      const healthLabel = readCreatureHealth(creature);
       const marker = document.createElement("div");
       marker.className = "mb-visibility-marker";
-      marker.textContent = `${creature.name || "Mob"} (${floorLabel})`;
+      marker.textContent = healthLabel
+        ? `${creature.name || "Mob"} (${floorLabel}) ${healthLabel}`
+        : `${creature.name || "Mob"} (${floorLabel})`;
       marker.style.left = `${viewportRect.left + ((dx + 8.5) * tileWidth)}px`;
       marker.style.top = `${viewportRect.top + ((dy + 6.5) * tileHeight)}px`;
       root.appendChild(marker);
@@ -576,6 +631,9 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
   }
 
   function startOverlay() {
+    config.overlayEnabled = true;
+    persistConfig();
+
     if (overlayState.running) {
       return false;
     }
@@ -588,6 +646,9 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
   }
 
   function stopOverlay() {
+    config.overlayEnabled = false;
+    persistConfig();
+
     if (!overlayState.running && overlayState.timerId == null) {
       return false;
     }
@@ -600,6 +661,29 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
 
     destroyOverlayElements();
     return true;
+  }
+
+  function setOverlayEnabled(enabled) {
+    const nextEnabled = !!enabled;
+
+    if (nextEnabled) {
+      if (overlayState.running) {
+        config.overlayEnabled = true;
+        persistConfig();
+        return true;
+      }
+
+      return startOverlay();
+    }
+
+    if (!overlayState.running) {
+      config.overlayEnabled = false;
+      persistConfig();
+      destroyOverlayElements();
+      return true;
+    }
+
+    return stopOverlay();
   }
 
   function status() {
@@ -626,6 +710,7 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
         type: creature.type,
         position: creature.__position || null,
       })),
+      config: { ...config },
       overlayRunning: overlayState.running,
     };
   }
@@ -636,10 +721,16 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
     getOverlayCreatures,
     startOverlay,
     stopOverlay,
+    setOverlayEnabled,
     status,
+    config,
   };
 
-  startOverlay();
+  if (config.overlayEnabled) {
+    startOverlay();
+  } else {
+    destroyOverlayElements();
+  }
   bot.addCleanup(stopOverlay);
 };
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
@@ -1508,6 +1599,20 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     }
   }
 
+  function refreshVisibilityStatus() {
+    const status = bot.visibility?.status?.();
+    const overlayButton = document.getElementById("minibia-bot-visibility-overlay-toggle");
+    const overlayLabel = document.getElementById("minibia-bot-visibility-overlay-status");
+
+    if (overlayButton) {
+      overlayButton.textContent = status?.config?.overlayEnabled ? "Disable Overlay" : "Enable Overlay";
+    }
+
+    if (overlayLabel) {
+      overlayLabel.textContent = status?.config?.overlayEnabled ? "Overlay: on" : "Overlay: off";
+    }
+  }
+
   function renderTrustedNames() {
     const list = document.getElementById("minibia-bot-panic-trusted-list");
     if (!list) return;
@@ -2080,6 +2185,8 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         <div class="mb-side-column">
           <div class="mb-section mb-column-section">
             <div class="mb-label">Visible Creatures</div>
+            <button type="button" class="mb-small-button" id="minibia-bot-visibility-overlay-toggle">Disable Overlay</button>
+            <div class="mb-small-note" id="minibia-bot-visibility-overlay-status">Overlay: on</div>
             <div class="mb-list" id="minibia-bot-visible-creatures-list"></div>
           </div>
         </div>
@@ -2113,6 +2220,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const panicHealthInput = panel.querySelector("#minibia-bot-panic-health");
     const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted-input");
     const panicTrustedAddButton = panel.querySelector("#minibia-bot-panic-trusted-add");
+    const visibilityOverlayButton = panel.querySelector("#minibia-bot-visibility-overlay-toggle");
     const collapseButton = panel.querySelector("#minibia-bot-collapse");
     const reloadButton = panel.querySelector("#minibia-bot-reload");
 
@@ -2260,6 +2368,14 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       });
     }
 
+    if (visibilityOverlayButton) {
+      visibilityOverlayButton.addEventListener("click", () => {
+        const enabled = !!bot.visibility?.status?.().config?.overlayEnabled;
+        bot.visibility?.setOverlayEnabled?.(!enabled);
+        refreshVisibilityStatus();
+      });
+    }
+
     panel.querySelector("#minibia-bot-set-home")?.addEventListener("click", () => {
       bot.pz.setHomePzCurrentSpot();
       refreshHomeLabel();
@@ -2267,6 +2383,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     refreshHomeLabel();
     refreshPanicStatus();
+    refreshVisibilityStatus();
     renderGameMasterNames();
     renderTrustedNames();
     refreshRuneStatus();
@@ -2284,6 +2401,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     destroy,
     refreshHomeLabel,
     refreshPanicStatus,
+    refreshVisibilityStatus,
     refreshRuneStatus,
     refreshAutoEatStatus,
     refreshVisibleCreatures,

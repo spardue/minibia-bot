@@ -1,12 +1,23 @@
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
 window.__minibiaBotBundle.installVisibilityModule = function installVisibilityModule(bot) {
+  const configStorageKey = "minibiaBot.visibility.config";
   const overlayRootId = "minibia-bot-visibility-overlay";
   const overlayStyleId = "minibia-bot-visibility-overlay-style";
   const overlayState = {
     running: false,
     timerId: null,
   };
+  const config = Object.assign(
+    {
+      overlayEnabled: true,
+    },
+    bot.storage.get(configStorageKey, {})
+  );
+
+  function persistConfig() {
+    bot.storage.set(configStorageKey, { ...config });
+  }
 
   function normalizeName(name) {
     return String(name || "").trim().toLowerCase();
@@ -61,6 +72,47 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
 
       return creature.__position?.z === me.z;
     });
+  }
+
+  function readCreatureHealth(creature) {
+    if (!creature) {
+      return null;
+    }
+
+    const current = [
+      creature.health,
+      creature.hp,
+      creature.currentHealth,
+      creature.state?.health,
+    ].find((value) => Number.isFinite(Number(value)));
+
+    const max = [
+      creature.maxHealth,
+      creature.maxHp,
+      creature.maximumHealth,
+      creature.state?.maxHealth,
+    ].find((value) => Number.isFinite(Number(value)));
+
+    const percent = [
+      creature.healthPercent,
+      creature.hpPercent,
+      creature.healthpercentage,
+      creature.state?.healthPercent,
+    ].find((value) => Number.isFinite(Number(value)));
+
+    if (current != null && max != null) {
+      return `${Number(current)}/${Number(max)} HP`;
+    }
+
+    if (percent != null) {
+      return `${Math.round(Number(percent))}% HP`;
+    }
+
+    if (current != null) {
+      return `${Number(current)} HP`;
+    }
+
+    return null;
   }
 
   function getOverlayCreatures() {
@@ -157,9 +209,12 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
       const dy = pos.y - me.y;
       const floorOffset = me.z - pos.z;
       const floorLabel = floorOffset === 0 ? "0" : floorOffset > 0 ? `+${floorOffset}` : `${floorOffset}`;
+      const healthLabel = readCreatureHealth(creature);
       const marker = document.createElement("div");
       marker.className = "mb-visibility-marker";
-      marker.textContent = `${creature.name || "Mob"} (${floorLabel})`;
+      marker.textContent = healthLabel
+        ? `${creature.name || "Mob"} (${floorLabel}) ${healthLabel}`
+        : `${creature.name || "Mob"} (${floorLabel})`;
       marker.style.left = `${viewportRect.left + ((dx + 8.5) * tileWidth)}px`;
       marker.style.top = `${viewportRect.top + ((dy + 6.5) * tileHeight)}px`;
       root.appendChild(marker);
@@ -167,6 +222,9 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
   }
 
   function startOverlay() {
+    config.overlayEnabled = true;
+    persistConfig();
+
     if (overlayState.running) {
       return false;
     }
@@ -179,6 +237,9 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
   }
 
   function stopOverlay() {
+    config.overlayEnabled = false;
+    persistConfig();
+
     if (!overlayState.running && overlayState.timerId == null) {
       return false;
     }
@@ -191,6 +252,29 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
 
     destroyOverlayElements();
     return true;
+  }
+
+  function setOverlayEnabled(enabled) {
+    const nextEnabled = !!enabled;
+
+    if (nextEnabled) {
+      if (overlayState.running) {
+        config.overlayEnabled = true;
+        persistConfig();
+        return true;
+      }
+
+      return startOverlay();
+    }
+
+    if (!overlayState.running) {
+      config.overlayEnabled = false;
+      persistConfig();
+      destroyOverlayElements();
+      return true;
+    }
+
+    return stopOverlay();
   }
 
   function status() {
@@ -217,6 +301,7 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
         type: creature.type,
         position: creature.__position || null,
       })),
+      config: { ...config },
       overlayRunning: overlayState.running,
     };
   }
@@ -227,9 +312,15 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
     getOverlayCreatures,
     startOverlay,
     stopOverlay,
+    setOverlayEnabled,
     status,
+    config,
   };
 
-  startOverlay();
+  if (config.overlayEnabled) {
+    startOverlay();
+  } else {
+    destroyOverlayElements();
+  }
   bot.addCleanup(stopOverlay);
 };
