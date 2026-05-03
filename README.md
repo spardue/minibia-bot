@@ -32,6 +32,7 @@ This repo now has a simple source layout for browser-loaded Minibia routines, wh
 - [src/ui/panel.js](/home/yuno/minibia-bot/src/ui/panel.js): draggable in-game panel
 - [src/main.js](/home/yuno/minibia-bot/src/main.js): bundle entrypoint
 - [build.sh](/home/yuno/minibia-bot/build.sh): rebuilds `pz-bot.js` from `src/`
+- [cors_http_server.py](/home/yuno/minibia-bot/cors_http_server.py): local dev server with CORS headers for browser fetches
 
 **Reload In Game**
 
@@ -40,6 +41,14 @@ fetch("http://127.0.0.1:8000/pz-bot.js")
   .then((r) => r.text())
   .then((code) => eval(code));
 ```
+
+If the browser blocks that request because of CORS, run:
+
+```bash
+python3 cors_http_server.py
+```
+
+That serves this folder on `http://127.0.0.1:8000/` with `Access-Control-Allow-Origin: *`.
 
 **Main API**
 
