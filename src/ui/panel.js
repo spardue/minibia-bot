@@ -332,6 +332,10 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         user-select: none;
       }
 
+      #minibia-bot-panel[data-collapsed="true"] {
+        width: 220px;
+      }
+
       #minibia-bot-panel .mb-title {
         margin: 0;
         font-weight: 700;
@@ -366,6 +370,10 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         grid-template-columns: 240px minmax(0, 1fr);
         gap: 12px;
         align-items: start;
+      }
+
+      #minibia-bot-panel .mb-body[hidden] {
+        display: none !important;
       }
 
       #minibia-bot-panel .mb-side-column,
@@ -508,6 +516,12 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
       #minibia-bot-panel .mb-side-column .mb-list {
         max-height: 340px;
+        overflow-y: auto;
+        padding-right: 2px;
+      }
+
+      #minibia-bot-panel #minibia-bot-panic-trusted-list {
+        max-height: 140px;
         overflow-y: auto;
         padding-right: 2px;
       }
