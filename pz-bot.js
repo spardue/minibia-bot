@@ -1430,7 +1430,9 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const getFloorOffset = (creature) => (creature.position?.z || 0) - me.z;
     const getFloorDistance = (creature) => Math.abs(getFloorOffset(creature));
 
-    const visibleCreatures = [...creatures].sort((a, b) => {
+    const visibleCreatures = creatures
+      .filter((creature) => creature?.position?.z != null && creature.position.z !== me.z)
+      .sort((a, b) => {
       const floorDistanceDiff = getFloorDistance(a) - getFloorDistance(b);
       if (floorDistanceDiff !== 0) return floorDistanceDiff;
 
@@ -1445,7 +1447,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     if (!visibleCreatures.length) {
       const empty = document.createElement("div");
       empty.className = "mb-small-note";
-      empty.textContent = "No visible creatures.";
+      empty.textContent = "No off-floor creatures.";
       list.appendChild(empty);
       return;
     }
@@ -1462,8 +1464,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
         const floorLabel = document.createElement("div");
         floorLabel.className = "mb-floor-label";
-        floorLabel.textContent =
-          floorOffset === 0 ? `Floor ${floor} (0, current)` : `Floor ${floor} (${floorOffsetLabel})`;
+        floorLabel.textContent = `Floor ${floor} (${floorOffsetLabel})`;
         list.appendChild(floorLabel);
       }
 
