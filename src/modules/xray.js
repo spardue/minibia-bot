@@ -1,9 +1,9 @@
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
-window.__minibiaBotBundle.installVisibilityModule = function installVisibilityModule(bot) {
-  const configStorageKey = "minibiaBot.visibility.config";
-  const overlayRootId = "minibia-bot-visibility-overlay";
-  const overlayStyleId = "minibia-bot-visibility-overlay-style";
+window.__minibiaBotBundle.installXrayModule = function installXrayModule(bot) {
+  const configStorageKey = "minibiaBot.xray.config";
+  const overlayRootId = "minibia-bot-xray-overlay";
+  const overlayStyleId = "minibia-bot-xray-overlay-style";
   const overlayState = {
     running: false,
     timerId: null,
@@ -141,7 +141,7 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
         z-index: 999998;
       }
 
-      #${overlayRootId} .mb-visibility-marker {
+      #${overlayRootId} .mb-xray-marker {
         position: fixed;
         transform: translate(-50%, -50%);
         padding: 2px 6px;
@@ -211,7 +211,7 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
       const floorLabel = floorOffset === 0 ? "0" : floorOffset > 0 ? `+${floorOffset}` : `${floorOffset}`;
       const healthLabel = readCreatureHealth(creature);
       const marker = document.createElement("div");
-      marker.className = "mb-visibility-marker";
+      marker.className = "mb-xray-marker";
       marker.textContent = healthLabel
         ? `${creature.name || "Mob"} (${floorLabel}) ${healthLabel}`
         : `${creature.name || "Mob"} (${floorLabel})`;
@@ -306,7 +306,7 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
     };
   }
 
-  bot.visibility = {
+  bot.xray = {
     getVisibleCreatures,
     getVisiblePlayers,
     getOverlayCreatures,

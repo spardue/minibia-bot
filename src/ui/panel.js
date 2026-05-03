@@ -49,10 +49,10 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     }
   }
 
-  function refreshVisibilityStatus() {
-    const status = bot.visibility?.status?.();
-    const overlayButton = document.getElementById("minibia-bot-visibility-overlay-toggle");
-    const overlayLabel = document.getElementById("minibia-bot-visibility-overlay-status");
+  function refreshXrayStatus() {
+    const status = bot.xray?.status?.();
+    const overlayButton = document.getElementById("minibia-bot-xray-overlay-toggle");
+    const overlayLabel = document.getElementById("minibia-bot-xray-overlay-status");
 
     if (overlayButton) {
       overlayButton.textContent = status?.config?.overlayEnabled ? "Disable Overlay" : "Enable Overlay";
@@ -160,7 +160,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     if (!list) return;
 
     const me = bot.getPlayerPosition?.();
-    const creatures = bot.visibility?.status?.().visibleCreatures || [];
+    const creatures = bot.xray?.status?.().visibleCreatures || [];
     list.innerHTML = "";
 
     if (!me) {
@@ -634,9 +634,9 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         </div>
         <div class="mb-side-column">
           <div class="mb-section mb-column-section">
-            <div class="mb-label">Visible Creatures</div>
-            <button type="button" class="mb-small-button" id="minibia-bot-visibility-overlay-toggle">Disable Overlay</button>
-            <div class="mb-small-note" id="minibia-bot-visibility-overlay-status">Overlay: on</div>
+            <div class="mb-label">Xray</div>
+            <button type="button" class="mb-small-button" id="minibia-bot-xray-overlay-toggle">Disable Overlay</button>
+            <div class="mb-small-note" id="minibia-bot-xray-overlay-status">Overlay: on</div>
             <div class="mb-list" id="minibia-bot-visible-creatures-list"></div>
           </div>
         </div>
@@ -670,7 +670,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const panicHealthInput = panel.querySelector("#minibia-bot-panic-health");
     const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted-input");
     const panicTrustedAddButton = panel.querySelector("#minibia-bot-panic-trusted-add");
-    const visibilityOverlayButton = panel.querySelector("#minibia-bot-visibility-overlay-toggle");
+    const xrayOverlayButton = panel.querySelector("#minibia-bot-xray-overlay-toggle");
     const collapseButton = panel.querySelector("#minibia-bot-collapse");
     const reloadButton = panel.querySelector("#minibia-bot-reload");
 
@@ -818,11 +818,11 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       });
     }
 
-    if (visibilityOverlayButton) {
-      visibilityOverlayButton.addEventListener("click", () => {
-        const enabled = !!bot.visibility?.status?.().config?.overlayEnabled;
-        bot.visibility?.setOverlayEnabled?.(!enabled);
-        refreshVisibilityStatus();
+    if (xrayOverlayButton) {
+      xrayOverlayButton.addEventListener("click", () => {
+        const enabled = !!bot.xray?.status?.().config?.overlayEnabled;
+        bot.xray?.setOverlayEnabled?.(!enabled);
+        refreshXrayStatus();
       });
     }
 
@@ -833,7 +833,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     refreshHomeLabel();
     refreshPanicStatus();
-    refreshVisibilityStatus();
+    refreshXrayStatus();
     renderGameMasterNames();
     renderTrustedNames();
     refreshRuneStatus();
@@ -851,7 +851,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     destroy,
     refreshHomeLabel,
     refreshPanicStatus,
-    refreshVisibilityStatus,
+    refreshXrayStatus,
     refreshRuneStatus,
     refreshAutoEatStatus,
     refreshVisibleCreatures,

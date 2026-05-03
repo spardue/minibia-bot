@@ -51,7 +51,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
   }
 
   function getVisiblePlayers() {
-    return bot.visibility?.getVisiblePlayers?.({ sameFloorOnly: true }) || [];
+    return bot.xray?.getVisiblePlayers?.({ sameFloorOnly: true }) || [];
   }
 
   function getUnknownVisiblePlayers() {

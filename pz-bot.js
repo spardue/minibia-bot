@@ -409,10 +409,10 @@ window.__minibiaBotBundle.installPzModule = function installPzModule(bot) {
 };
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
-window.__minibiaBotBundle.installVisibilityModule = function installVisibilityModule(bot) {
-  const configStorageKey = "minibiaBot.visibility.config";
-  const overlayRootId = "minibia-bot-visibility-overlay";
-  const overlayStyleId = "minibia-bot-visibility-overlay-style";
+window.__minibiaBotBundle.installXrayModule = function installXrayModule(bot) {
+  const configStorageKey = "minibiaBot.xray.config";
+  const overlayRootId = "minibia-bot-xray-overlay";
+  const overlayStyleId = "minibia-bot-xray-overlay-style";
   const overlayState = {
     running: false,
     timerId: null,
@@ -550,7 +550,7 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
         z-index: 999998;
       }
 
-      #${overlayRootId} .mb-visibility-marker {
+      #${overlayRootId} .mb-xray-marker {
         position: fixed;
         transform: translate(-50%, -50%);
         padding: 2px 6px;
@@ -620,7 +620,7 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
       const floorLabel = floorOffset === 0 ? "0" : floorOffset > 0 ? `+${floorOffset}` : `${floorOffset}`;
       const healthLabel = readCreatureHealth(creature);
       const marker = document.createElement("div");
-      marker.className = "mb-visibility-marker";
+      marker.className = "mb-xray-marker";
       marker.textContent = healthLabel
         ? `${creature.name || "Mob"} (${floorLabel}) ${healthLabel}`
         : `${creature.name || "Mob"} (${floorLabel})`;
@@ -715,7 +715,7 @@ window.__minibiaBotBundle.installVisibilityModule = function installVisibilityMo
     };
   }
 
-  bot.visibility = {
+  bot.xray = {
     getVisibleCreatures,
     getVisiblePlayers,
     getOverlayCreatures,
@@ -786,7 +786,7 @@ window.__minibiaBotBundle.installPanicModule = function installPanicModule(bot) 
   }
 
   function getVisiblePlayers() {
-    return bot.visibility?.getVisiblePlayers?.({ sameFloorOnly: true }) || [];
+    return bot.xray?.getVisiblePlayers?.({ sameFloorOnly: true }) || [];
   }
 
   function getUnknownVisiblePlayers() {
@@ -1599,10 +1599,10 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     }
   }
 
-  function refreshVisibilityStatus() {
-    const status = bot.visibility?.status?.();
-    const overlayButton = document.getElementById("minibia-bot-visibility-overlay-toggle");
-    const overlayLabel = document.getElementById("minibia-bot-visibility-overlay-status");
+  function refreshXrayStatus() {
+    const status = bot.xray?.status?.();
+    const overlayButton = document.getElementById("minibia-bot-xray-overlay-toggle");
+    const overlayLabel = document.getElementById("minibia-bot-xray-overlay-status");
 
     if (overlayButton) {
       overlayButton.textContent = status?.config?.overlayEnabled ? "Disable Overlay" : "Enable Overlay";
@@ -1710,7 +1710,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     if (!list) return;
 
     const me = bot.getPlayerPosition?.();
-    const creatures = bot.visibility?.status?.().visibleCreatures || [];
+    const creatures = bot.xray?.status?.().visibleCreatures || [];
     list.innerHTML = "";
 
     if (!me) {
@@ -2184,9 +2184,9 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         </div>
         <div class="mb-side-column">
           <div class="mb-section mb-column-section">
-            <div class="mb-label">Visible Creatures</div>
-            <button type="button" class="mb-small-button" id="minibia-bot-visibility-overlay-toggle">Disable Overlay</button>
-            <div class="mb-small-note" id="minibia-bot-visibility-overlay-status">Overlay: on</div>
+            <div class="mb-label">Xray</div>
+            <button type="button" class="mb-small-button" id="minibia-bot-xray-overlay-toggle">Disable Overlay</button>
+            <div class="mb-small-note" id="minibia-bot-xray-overlay-status">Overlay: on</div>
             <div class="mb-list" id="minibia-bot-visible-creatures-list"></div>
           </div>
         </div>
@@ -2220,7 +2220,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const panicHealthInput = panel.querySelector("#minibia-bot-panic-health");
     const panicTrustedInput = panel.querySelector("#minibia-bot-panic-trusted-input");
     const panicTrustedAddButton = panel.querySelector("#minibia-bot-panic-trusted-add");
-    const visibilityOverlayButton = panel.querySelector("#minibia-bot-visibility-overlay-toggle");
+    const xrayOverlayButton = panel.querySelector("#minibia-bot-xray-overlay-toggle");
     const collapseButton = panel.querySelector("#minibia-bot-collapse");
     const reloadButton = panel.querySelector("#minibia-bot-reload");
 
@@ -2368,11 +2368,11 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       });
     }
 
-    if (visibilityOverlayButton) {
-      visibilityOverlayButton.addEventListener("click", () => {
-        const enabled = !!bot.visibility?.status?.().config?.overlayEnabled;
-        bot.visibility?.setOverlayEnabled?.(!enabled);
-        refreshVisibilityStatus();
+    if (xrayOverlayButton) {
+      xrayOverlayButton.addEventListener("click", () => {
+        const enabled = !!bot.xray?.status?.().config?.overlayEnabled;
+        bot.xray?.setOverlayEnabled?.(!enabled);
+        refreshXrayStatus();
       });
     }
 
@@ -2383,7 +2383,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     refreshHomeLabel();
     refreshPanicStatus();
-    refreshVisibilityStatus();
+    refreshXrayStatus();
     renderGameMasterNames();
     renderTrustedNames();
     refreshRuneStatus();
@@ -2401,7 +2401,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     destroy,
     refreshHomeLabel,
     refreshPanicStatus,
-    refreshVisibilityStatus,
+    refreshXrayStatus,
     refreshRuneStatus,
     refreshAutoEatStatus,
     refreshVisibleCreatures,
@@ -2424,7 +2424,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const bot = currentBundle.createBot();
 
     currentBundle.installPzModule(bot);
-    currentBundle.installVisibilityModule(bot);
+    currentBundle.installXrayModule(bot);
     currentBundle.installPanicModule(bot);
     currentBundle.installRuneModule(bot);
     currentBundle.installAutoEatModule(bot);
@@ -2440,7 +2440,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       pz: {
         home: bot.pz.getHomePz(),
       },
-      visibility: bot.visibility.status(),
+      xray: bot.xray.status(),
       panic: bot.panic.status(),
       rune: bot.rune.status(),
       eat: bot.eat.status(),
@@ -2451,10 +2451,10 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     console.log("[minibia-bot] ready", {
       version: bot.version,
-      modules: ["pz", "visibility", "panic", "rune", "eat", "ui"],
+      modules: ["pz", "xray", "panic", "rune", "eat", "ui"],
     });
     console.log("minibiaBot.reload()");
-    console.log("minibiaBot.visibility.status()");
+    console.log("minibiaBot.xray.status()");
     console.log("minibiaBot.panic.status()");
     console.log("minibiaBot.pz.goToNearestPz()");
     console.log("minibiaBot.pz.setHomePzCurrentSpot()");
