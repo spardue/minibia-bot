@@ -8,6 +8,7 @@ cat \
   src/modules/panic.js \
   src/modules/rune.js \
   src/modules/auto-eat.js \
+  src/modules/talk.js \
   src/ui/panel.js \
   src/main.js \
   > pz-bot.js

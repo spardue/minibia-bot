@@ -4,6 +4,7 @@ window.__minibiaBotBundle.createBot = function createBot() {
   const cleanups = [];
   const defaultAlarmAudioSrc = "https://upload.wikimedia.org/wikipedia/commons/transcoded/3/3f/ACA_Allertor_125_video.ogv/ACA_Allertor_125_video.ogv.480p.vp9.webm";
   const alarmAudioSrcStorageKey = "minibiaBot.audio.alarmSrc";
+  const recentSentChats = [];
   let alarmAudio = null;
 
   function addCleanup(fn) {
@@ -71,8 +72,53 @@ window.__minibiaBotBundle.createBot = function createBot() {
     return alarmAudio;
   }
 
+  function normalizeChatText(text) {
+    return String(text || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  function rememberSentChat(text) {
+    const normalized = normalizeChatText(text);
+    if (!normalized) {
+      return;
+    }
+
+    recentSentChats.push({
+      text: normalized,
+      at: Date.now(),
+    });
+
+    const maxEntries = 20;
+    if (recentSentChats.length > maxEntries) {
+      recentSentChats.splice(0, recentSentChats.length - maxEntries);
+    }
+  }
+
+  function isRecentSentChat(text, withinMs = 45000) {
+    const normalized = normalizeChatText(text);
+    if (!normalized) {
+      return false;
+    }
+
+    const cutoff = Date.now() - withinMs;
+    for (let index = recentSentChats.length - 1; index >= 0; index -= 1) {
+      const entry = recentSentChats[index];
+      if (entry.at < cutoff) {
+        continue;
+      }
+
+      if (entry.text === normalized) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   return {
-    version: "0.2.0",
+    version: "0.3.0",
     addCleanup,
     destroy() {
       if (this.panic?.stop) {
@@ -85,6 +131,10 @@ window.__minibiaBotBundle.createBot = function createBot() {
 
       if (this.eat?.stop) {
         this.eat.stop();
+      }
+
+      if (this.talk?.stop) {
+        this.talk.stop();
       }
 
       if (this.ui?.destroy) {
@@ -120,6 +170,9 @@ window.__minibiaBotBundle.createBot = function createBot() {
     getPlayerState() {
       return window.gameClient?.player?.state || null;
     },
+    getPlayerName() {
+      return String(this.getPlayerState()?.name || "").trim() || null;
+    },
     sendChat(text) {
       const channelManager = window.gameClient?.interface?.channelManager;
       if (!channelManager || !text) {
@@ -127,8 +180,12 @@ window.__minibiaBotBundle.createBot = function createBot() {
       }
 
       channelManager.sendMessageText(text);
+      rememberSentChat(text);
       this.log("sent chat:", text);
       return true;
+    },
+    isRecentSentChat(text, withinMs) {
+      return isRecentSentChat(text, withinMs);
     },
     clickHotbar(index) {
       const button = window.gameClient?.interface?.hotbarManager?.slots?.[index]?.canvas?.canvas;

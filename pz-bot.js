@@ -4,6 +4,7 @@ window.__minibiaBotBundle.createBot = function createBot() {
   const cleanups = [];
   const defaultAlarmAudioSrc = "https://upload.wikimedia.org/wikipedia/commons/transcoded/3/3f/ACA_Allertor_125_video.ogv/ACA_Allertor_125_video.ogv.480p.vp9.webm";
   const alarmAudioSrcStorageKey = "minibiaBot.audio.alarmSrc";
+  const recentSentChats = [];
   let alarmAudio = null;
 
   function addCleanup(fn) {
@@ -71,8 +72,53 @@ window.__minibiaBotBundle.createBot = function createBot() {
     return alarmAudio;
   }
 
+  function normalizeChatText(text) {
+    return String(text || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  function rememberSentChat(text) {
+    const normalized = normalizeChatText(text);
+    if (!normalized) {
+      return;
+    }
+
+    recentSentChats.push({
+      text: normalized,
+      at: Date.now(),
+    });
+
+    const maxEntries = 20;
+    if (recentSentChats.length > maxEntries) {
+      recentSentChats.splice(0, recentSentChats.length - maxEntries);
+    }
+  }
+
+  function isRecentSentChat(text, withinMs = 45000) {
+    const normalized = normalizeChatText(text);
+    if (!normalized) {
+      return false;
+    }
+
+    const cutoff = Date.now() - withinMs;
+    for (let index = recentSentChats.length - 1; index >= 0; index -= 1) {
+      const entry = recentSentChats[index];
+      if (entry.at < cutoff) {
+        continue;
+      }
+
+      if (entry.text === normalized) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   return {
-    version: "0.2.0",
+    version: "0.3.0",
     addCleanup,
     destroy() {
       if (this.panic?.stop) {
@@ -85,6 +131,10 @@ window.__minibiaBotBundle.createBot = function createBot() {
 
       if (this.eat?.stop) {
         this.eat.stop();
+      }
+
+      if (this.talk?.stop) {
+        this.talk.stop();
       }
 
       if (this.ui?.destroy) {
@@ -120,6 +170,9 @@ window.__minibiaBotBundle.createBot = function createBot() {
     getPlayerState() {
       return window.gameClient?.player?.state || null;
     },
+    getPlayerName() {
+      return String(this.getPlayerState()?.name || "").trim() || null;
+    },
     sendChat(text) {
       const channelManager = window.gameClient?.interface?.channelManager;
       if (!channelManager || !text) {
@@ -127,8 +180,12 @@ window.__minibiaBotBundle.createBot = function createBot() {
       }
 
       channelManager.sendMessageText(text);
+      rememberSentChat(text);
       this.log("sent chat:", text);
       return true;
+    },
+    isRecentSentChat(text, withinMs) {
+      return isRecentSentChat(text, withinMs);
     },
     clickHotbar(index) {
       const button = window.gameClient?.interface?.hotbarManager?.slots?.[index]?.canvas?.canvas;
@@ -1550,6 +1607,459 @@ window.__minibiaBotBundle.installAutoEatModule = function installAutoEatModule(b
 };
 window.__minibiaBotBundle = window.__minibiaBotBundle || {};
 
+window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
+  const configStorageKey = "minibiaBot.talk.config";
+  const defaultSystemPrompt =
+    "You are a real player on a Tibia OT server called Minibia chatting in-game. Reply like a normal Tibia OT player with short, slightly broken grammar and casual wording. Always keep replies to one short sentence under 180 characters, plain text only, and no emojis. Never say or imply that you are an AI, assistant, language model, automation, script, or bot under any circumstances. If someone asks whether you are a bot, deny it briefly and stay in character as a player.";
+  const state = {
+    running: false,
+    timerId: null,
+    pending: false,
+    lastReplyAt: 0,
+    seenMessageKeys: [],
+  };
+
+  const config = Object.assign(
+    {
+      enabled: false,
+      provider: "gemini",
+      apiKey: "",
+      model: "gemini-2.5-flash",
+      pollMs: 2500,
+      replyCooldownMs: 15000,
+      systemPrompt: defaultSystemPrompt,
+    },
+    bot.storage.get(configStorageKey, {})
+  );
+
+  function persistConfig() {
+    bot.storage.set(configStorageKey, { ...config });
+  }
+
+  function normalizeName(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function sanitizeConfig() {
+    config.provider = "gemini";
+    config.apiKey = String(config.apiKey || "").trim();
+    config.model = String(config.model || "gemini-2.5-flash").trim() || "gemini-2.5-flash";
+    config.pollMs = Math.max(1000, Number(config.pollMs) || 2500);
+    config.replyCooldownMs = Math.max(0, Number(config.replyCooldownMs) || 15000);
+    config.systemPrompt = String(config.systemPrompt || "").trim() || defaultSystemPrompt;
+  }
+
+  function trimSeenKeys() {
+    const maxSeenKeys = 200;
+    if (state.seenMessageKeys.length > maxSeenKeys) {
+      state.seenMessageKeys = state.seenMessageKeys.slice(-maxSeenKeys);
+    }
+  }
+
+  function rememberSeenKey(key) {
+    if (!key || state.seenMessageKeys.includes(key)) {
+      return;
+    }
+
+    state.seenMessageKeys.push(key);
+    trimSeenKeys();
+  }
+
+  function hasSeenKey(key) {
+    return !!key && state.seenMessageKeys.includes(key);
+  }
+
+  function extractSenderFromMessage(message) {
+    const text = String(message || "").trim();
+    if (!text) {
+      return { sender: null, body: "" };
+    }
+
+    const patterns = [
+      /^\[[^\]]+\]\s*([^:\n]{2,40}):\s+(.+)$/i,
+      /^([^:\n]{2,40}):\s+(.+)$/i,
+      /^([^:\n]{2,40})\s+says:\s+(.+)$/i,
+      /^From\s+([^:\n]{2,40}):\s+(.+)$/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        return {
+          sender: String(match[1] || "").trim() || null,
+          body: String(match[2] || "").trim(),
+        };
+      }
+    }
+
+    return { sender: null, body: text };
+  }
+
+  function getRawChatEntries() {
+    return (window.gameClient?.interface?.channelManager?.channels || []).flatMap((channel) =>
+      (channel?.__contents || []).map((entry, index) => ({
+        channelName: channel?.name || null,
+        entry,
+        index,
+      }))
+    );
+  }
+
+  function toChatMessage(rawEntry) {
+    const entry = rawEntry?.entry || {};
+    const rawMessage = String(entry?.message || entry?.text || "").trim();
+    const parsed = extractSenderFromMessage(rawMessage);
+    const sender =
+      String(entry?.author || entry?.sender || entry?.name || parsed.sender || "").trim() || null;
+    const body = String(entry?.text || parsed.body || rawMessage).trim();
+    const time = entry?.__time || entry?.time || null;
+    const key = [
+      rawEntry?.channelName || "",
+      time || "",
+      sender || "",
+      rawMessage || "",
+      rawEntry?.index || 0,
+    ].join("|");
+
+    return {
+      key,
+      channelName: rawEntry?.channelName || null,
+      sender,
+      body,
+      rawMessage,
+      time,
+    };
+  }
+
+  function getChatMessages() {
+    return getRawChatEntries().map(toChatMessage).filter((entry) => entry.body);
+  }
+
+  function isSelfMessage(message) {
+    const selfNames = new Set(["you", normalizeName(bot.getPlayerName?.())].filter(Boolean));
+    return selfNames.has(normalizeName(message?.sender));
+  }
+
+  function isBotRecentMessage(message) {
+    const candidates = [message?.body, message?.rawMessage];
+    return candidates.some((text) => bot.isRecentSentChat?.(text, 45000));
+  }
+
+  function looksLikeSpellCast(text) {
+    const normalizedText = normalizeName(text);
+    if (!normalizedText) {
+      return false;
+    }
+
+    if (/^[a-z]{2,10}(?:\s+[a-z]{2,10}){0,4}[!.,]?$/i.test(normalizedText)) {
+      const spellWords = [
+        "exura",
+        "exori",
+        "exevo",
+        "adori",
+        "utani",
+        "utura",
+        "utana",
+        "exana",
+        "exeta",
+        "utevo",
+        "adevo",
+        "adura"
+      ];
+
+      if (spellWords.some((word) => normalizedText.includes(word))) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function looksLikeFoodMessage(text) {
+    const normalizedText = normalizeName(text);
+    if (!normalizedText) {
+      return false;
+    }
+
+    return (
+      /\b(ate|eating|eat|drinking|drink|used|use|chomp|munch)\b/.test(normalizedText) &&
+      /\b(food|ham|meat|fish|mushroom|egg|pear|shrimp|mana fluid|health potion|potion)\b/.test(normalizedText)
+    );
+  }
+
+  function shouldReplyToMessage(message) {
+    if (!message?.body || !message?.key) {
+      return false;
+    }
+
+    if (hasSeenKey(message.key)) {
+      return false;
+    }
+
+    if (isSelfMessage(message)) {
+      rememberSeenKey(message.key);
+      return false;
+    }
+
+    if (isBotRecentMessage(message)) {
+      rememberSeenKey(message.key);
+      return false;
+    }
+
+    if (!message.sender) {
+      rememberSeenKey(message.key);
+      return false;
+    }
+
+    if (looksLikeSpellCast(message.body) || looksLikeFoodMessage(message.body)) {
+      rememberSeenKey(message.key);
+      return false;
+    }
+
+    return true;
+  }
+
+  function getRecentContextMessages(targetMessage) {
+    return getChatMessages()
+      .filter((message) => message.channelName === targetMessage.channelName)
+      .slice(-8);
+  }
+
+  function buildPrompt(targetMessage, contextMessages) {
+    const transcript = contextMessages
+      .map((message) => `${message.sender || "system"}: ${message.body}`)
+      .join("\n");
+
+    return [
+      config.systemPrompt,
+      "",
+      "Reply to the newest message in this in-game chat.",
+      "Rules:",
+      "- Sound human and casual.",
+      "- Stay in character as a Tibia OT player.",
+      "- Use slightly broken grammar like a normal fast in-game player.",
+      "- Reply with exactly one short sentence.",
+      "- Keep it under 180 characters.",
+      "- Plain text only.",
+      "- Never say or imply that you are an AI, assistant, bot, prompt, policy, script, or automation.",
+      "",
+      `Channel: ${targetMessage.channelName || "default"}`,
+      "Recent chat:",
+      transcript,
+      "",
+      `Newest message from ${targetMessage.sender}: ${targetMessage.body}`,
+      "Reply text only:",
+    ].join("\n");
+  }
+
+  async function generateGeminiReply(prompt) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": config.apiKey,
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.9,
+            topP: 0.95,
+            maxOutputTokens: 80,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini request failed (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    return (
+      data?.candidates?.[0]?.content?.parts
+        ?.map((part) => String(part?.text || ""))
+        .join(" ")
+        .trim() || ""
+    );
+  }
+
+  function sanitizeReply(text) {
+    const singleLine = String(text || "")
+      .replace(/\s+/g, " ")
+      .replace(/^["'`]+|["'`]+$/g, "")
+      .trim();
+
+    if (!singleLine) {
+      return "";
+    }
+
+    return singleLine.slice(0, 180).trim();
+  }
+
+  async function maybeRespond() {
+    if (!state.running || state.pending || !config.enabled || !config.apiKey) {
+      return false;
+    }
+
+    if (Date.now() - state.lastReplyAt < config.replyCooldownMs) {
+      return false;
+    }
+
+    const candidate = getChatMessages().slice().reverse().find(shouldReplyToMessage);
+    if (!candidate) {
+      return false;
+    }
+
+    state.pending = true;
+
+    try {
+      const contextMessages = getRecentContextMessages(candidate);
+      const prompt = buildPrompt(candidate, contextMessages);
+      const reply = sanitizeReply(await generateGeminiReply(prompt));
+
+      rememberSeenKey(candidate.key);
+
+      if (!reply) {
+        bot.log("talk module skipped empty reply", candidate);
+        return false;
+      }
+
+      const sent = bot.sendChat(reply);
+      if (sent) {
+        state.lastReplyAt = Date.now();
+        bot.log("talk module replied", {
+          channelName: candidate.channelName,
+          sender: candidate.sender,
+          message: candidate.body,
+          reply,
+        });
+      }
+
+      return sent;
+    } finally {
+      state.pending = false;
+    }
+  }
+
+  function scheduleNextTick() {
+    if (!state.running) {
+      return;
+    }
+
+    state.timerId = window.setTimeout(async () => {
+      try {
+        await tick();
+      } catch (error) {
+        console.error("[minibia-bot] talk tick failed", error);
+      }
+    }, config.pollMs);
+  }
+
+  async function tick() {
+    if (!state.running) {
+      return;
+    }
+
+    try {
+      await maybeRespond();
+    } catch (error) {
+      bot.log("talk module request failed", error?.message || error);
+    }
+
+    scheduleNextTick();
+  }
+
+  function seedSeenMessages() {
+    getChatMessages().forEach((message) => rememberSeenKey(message.key));
+  }
+
+  function start(overrides = {}) {
+    Object.assign(config, overrides, { enabled: true });
+    sanitizeConfig();
+    persistConfig();
+
+    if (!config.apiKey) {
+      bot.log("talk module requires a Gemini API key");
+      return false;
+    }
+
+    if (state.running) {
+      bot.log("talk module already running");
+      return false;
+    }
+
+    state.running = true;
+    seedSeenMessages();
+    bot.log("talk module started", {
+      model: config.model,
+      playerName: bot.getPlayerName?.(),
+    });
+    tick();
+    return true;
+  }
+
+  function stop() {
+    state.running = false;
+
+    if (state.timerId != null) {
+      window.clearTimeout(state.timerId);
+      state.timerId = null;
+    }
+
+    config.enabled = false;
+    persistConfig();
+    bot.log("talk module stopped");
+    return true;
+  }
+
+  function status() {
+    return {
+      running: state.running,
+      pending: state.pending,
+      lastReplyAt: state.lastReplyAt,
+      config: {
+        ...config,
+        apiKey: config.apiKey ? "***configured***" : "",
+      },
+    };
+  }
+
+  function updateConfig(nextConfig = {}) {
+    Object.assign(config, nextConfig);
+    sanitizeConfig();
+    persistConfig();
+    bot.log("talk config updated", {
+      ...config,
+      apiKey: config.apiKey ? "***configured***" : "",
+    });
+    return status().config;
+  }
+
+  sanitizeConfig();
+
+  if (config.enabled && config.apiKey) {
+    start();
+  }
+
+  bot.talk = {
+    start,
+    stop,
+    status,
+    updateConfig,
+    getChatMessages,
+    config,
+  };
+};
+window.__minibiaBotBundle = window.__minibiaBotBundle || {};
+
 window.__minibiaBotBundle.installPanel = function installPanel(bot) {
   const panelPositionKey = "minibiaBot.ui.panelPosition";
   const panelCollapsedKey = "minibiaBot.ui.panelCollapsed";
@@ -1703,6 +2213,28 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     if (!autoEatToggle) return;
 
     autoEatToggle.checked = !!bot.eat?.status?.().running;
+  }
+
+  function refreshTalkStatus() {
+    const talkToggle = document.getElementById("minibia-bot-talk-enabled");
+    const statusLabel = document.getElementById("minibia-bot-talk-status");
+    const status = bot.talk?.status?.();
+
+    if (talkToggle) {
+      talkToggle.checked = !!status?.running;
+    }
+
+    if (statusLabel) {
+      if (!status?.config?.apiKey) {
+        statusLabel.textContent = "Status: API key missing";
+      } else if (status?.pending) {
+        statusLabel.textContent = "Status: generating reply";
+      } else if (status?.running) {
+        statusLabel.textContent = "Status: listening";
+      } else {
+        statusLabel.textContent = "Status: idle";
+      }
+    }
   }
 
   function refreshVisibleCreatures() {
@@ -1983,7 +2515,8 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         background: linear-gradient(180deg, #755f3d, #4f4028);
       }
 
-      #minibia-bot-panel input {
+      #minibia-bot-panel input,
+      #minibia-bot-panel textarea {
         width: 100%;
         box-sizing: border-box;
         padding: 8px 10px;
@@ -1992,6 +2525,11 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
         background: rgba(16, 12, 8, 0.88);
         color: #f7eccf;
         font: inherit;
+      }
+
+      #minibia-bot-panel textarea {
+        min-height: 72px;
+        resize: vertical;
       }
 
       #minibia-bot-panel .mb-toggle {
@@ -2180,7 +2718,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
               </div>
             </div>
           </div>
-          <div class="mb-note">Loaded routines: Panic Runner, magic level trainer, and auto eat.</div>
+          <div class="mb-note">Loaded routines: Panic Runner, magic level trainer, auto eat, and Gemini talk replies.</div>
         </div>
         <div class="mb-side-column">
           <div class="mb-section mb-column-section">
@@ -2188,6 +2726,20 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
             <button type="button" class="mb-small-button" id="minibia-bot-xray-overlay-toggle">Disable Overlay</button>
             <div class="mb-small-note" id="minibia-bot-xray-overlay-status">Overlay: on</div>
             <div class="mb-list" id="minibia-bot-visible-creatures-list"></div>
+          </div>
+          <div class="mb-section mb-column-section">
+            <div class="mb-label">Talk</div>
+            <div class="mb-stack">
+              <label class="mb-toggle">
+                <input type="checkbox" id="minibia-bot-talk-enabled" />
+                <span>Auto Reply</span>
+              </label>
+              <input type="password" id="minibia-bot-talk-api-key" placeholder="Gemini API key" />
+              <input type="text" id="minibia-bot-talk-model" placeholder="Gemini model" />
+              <textarea id="minibia-bot-talk-prompt" placeholder="Reply style prompt"></textarea>
+              <div class="mb-small-note" id="minibia-bot-talk-status">Status: idle</div>
+              <div class="mb-small-note">Replies are sent to the currently active game chat channel.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -2214,6 +2766,10 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     const manaInput = panel.querySelector("#minibia-bot-rune-mana");
     const runeEnabledInput = panel.querySelector("#minibia-bot-rune-enabled");
     const autoEatEnabledInput = panel.querySelector("#minibia-bot-auto-eat-enabled");
+    const talkEnabledInput = panel.querySelector("#minibia-bot-talk-enabled");
+    const talkApiKeyInput = panel.querySelector("#minibia-bot-talk-api-key");
+    const talkModelInput = panel.querySelector("#minibia-bot-talk-model");
+    const talkPromptInput = panel.querySelector("#minibia-bot-talk-prompt");
     const panicGmNameInput = panel.querySelector("#minibia-bot-panic-gm-input");
     const panicGmAddButton = panel.querySelector("#minibia-bot-panic-gm-add");
     const panicUnknownInput = panel.querySelector("#minibia-bot-panic-unknown");
@@ -2352,6 +2908,49 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       });
     }
 
+    if (talkApiKeyInput) {
+      talkApiKeyInput.value = bot.talk?.config?.apiKey || "";
+      talkApiKeyInput.addEventListener("change", () => {
+        bot.talk.updateConfig({ apiKey: talkApiKeyInput.value.trim() });
+        refreshTalkStatus();
+      });
+    }
+
+    if (talkModelInput) {
+      talkModelInput.value = bot.talk?.config?.model || "";
+      talkModelInput.addEventListener("change", () => {
+        bot.talk.updateConfig({ model: talkModelInput.value.trim() });
+      });
+    }
+
+    if (talkPromptInput) {
+      talkPromptInput.value = bot.talk?.config?.systemPrompt || "";
+      talkPromptInput.addEventListener("change", () => {
+        bot.talk.updateConfig({ systemPrompt: talkPromptInput.value.trim() });
+      });
+    }
+
+    if (talkEnabledInput) {
+      talkEnabledInput.checked = !!bot.talk?.status?.().running;
+      talkEnabledInput.addEventListener("change", () => {
+        if (talkEnabledInput.checked) {
+          bot.talk.updateConfig({
+            apiKey: talkApiKeyInput?.value?.trim() || "",
+            model: talkModelInput?.value?.trim() || "",
+            systemPrompt: talkPromptInput?.value?.trim() || "",
+          });
+          const started = bot.talk.start();
+          if (!started) {
+            talkEnabledInput.checked = false;
+          }
+        } else {
+          bot.talk.stop();
+        }
+
+        refreshTalkStatus();
+      });
+    }
+
     if (panicUnknownInput) {
       panicUnknownInput.checked = !!bot.panic?.status?.().config?.unknownPlayerEnabled;
       panicUnknownInput.addEventListener("change", () => {
@@ -2388,11 +2987,17 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     renderTrustedNames();
     refreshRuneStatus();
     refreshAutoEatStatus();
+    refreshTalkStatus();
     refreshVisibleCreatures();
 
     const visibleCreaturesTimerId = window.setInterval(refreshVisibleCreatures, 1000);
     bot.addCleanup(() => {
       window.clearInterval(visibleCreaturesTimerId);
+    });
+
+    const talkStatusTimerId = window.setInterval(refreshTalkStatus, 1000);
+    bot.addCleanup(() => {
+      window.clearInterval(talkStatusTimerId);
     });
   }
 
@@ -2404,6 +3009,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     refreshXrayStatus,
     refreshRuneStatus,
     refreshAutoEatStatus,
+    refreshTalkStatus,
     refreshVisibleCreatures,
     getSavedPanelPosition,
     getSavedPanelCollapsed,
@@ -2428,6 +3034,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     currentBundle.installPanicModule(bot);
     currentBundle.installRuneModule(bot);
     currentBundle.installAutoEatModule(bot);
+    currentBundle.installTalkModule(bot);
     currentBundle.installPanel(bot);
 
     bot.ui.inject();
@@ -2444,6 +3051,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
       panic: bot.panic.status(),
       rune: bot.rune.status(),
       eat: bot.eat.status(),
+      talk: bot.talk.status(),
     });
 
     window.minibiaBot = bot;
@@ -2451,7 +3059,7 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
 
     console.log("[minibia-bot] ready", {
       version: bot.version,
-      modules: ["pz", "xray", "panic", "rune", "eat", "ui"],
+      modules: ["pz", "xray", "panic", "rune", "eat", "talk", "ui"],
     });
     console.log("minibiaBot.reload()");
     console.log("minibiaBot.xray.status()");
@@ -2463,6 +3071,8 @@ window.__minibiaBotBundle.installPanel = function installPanel(bot) {
     console.log("minibiaBot.rune.stop()");
     console.log("minibiaBot.eat.start()");
     console.log("minibiaBot.eat.stop()");
+    console.log("minibiaBot.talk.start()");
+    console.log("minibiaBot.talk.stop()");
 
     return bot;
   }
