@@ -5,7 +5,19 @@ window.__minibiaBotBundle.createBot = function createBot() {
   const defaultAlarmAudioSrc = "https://upload.wikimedia.org/wikipedia/commons/transcoded/3/3f/ACA_Allertor_125_video.ogv/ACA_Allertor_125_video.ogv.480p.vp9.webm";
   const alarmAudioSrcStorageKey = "minibiaBot.audio.alarmSrc";
   const recentSentChats = [];
+  const reconnectButtonSelectors = [
+    "button",
+    "[role=\"button\"]",
+    "input[type=\"button\"]",
+    "input[type=\"submit\"]",
+    "a",
+    ".button",
+    ".btn",
+  ];
   let alarmAudio = null;
+  let reconnectObserver = null;
+  let reconnectPollTimerId = null;
+  let lastReconnectClickAt = 0;
 
   function addCleanup(fn) {
     if (typeof fn === "function") {
@@ -117,6 +129,115 @@ window.__minibiaBotBundle.createBot = function createBot() {
     return false;
   }
 
+  function normalizeUiText(text) {
+    return String(text || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  function isVisibleElement(element) {
+    if (!(element instanceof Element)) {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+  }
+
+  function getElementUiText(element) {
+    if (!(element instanceof Element)) {
+      return "";
+    }
+
+    return normalizeUiText(
+      element.textContent ||
+      element.innerText ||
+      element.getAttribute("value") ||
+      element.getAttribute("aria-label") ||
+      element.getAttribute("title") ||
+      ""
+    );
+  }
+
+  function findReconnectElement() {
+    for (const selector of reconnectButtonSelectors) {
+      const candidates = document.querySelectorAll(selector);
+      for (const candidate of candidates) {
+        if (!isVisibleElement(candidate)) {
+          continue;
+        }
+
+        if (getElementUiText(candidate) === "reconnect") {
+          return candidate;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function tryClickReconnect() {
+    const now = Date.now();
+    if (now - lastReconnectClickAt < 3000) {
+      return false;
+    }
+
+    const reconnectElement = findReconnectElement();
+    if (!reconnectElement) {
+      return false;
+    }
+
+    reconnectElement.click();
+    lastReconnectClickAt = now;
+    console.log("[minibia-bot] clicked reconnect");
+    return true;
+  }
+
+  function startReconnectWatcher() {
+    if (reconnectObserver || reconnectPollTimerId) {
+      return;
+    }
+
+    const runCheck = () => {
+      try {
+        tryClickReconnect();
+      } catch (error) {
+        console.error("[minibia-bot] reconnect watcher failed", error);
+      }
+    };
+
+    reconnectObserver = new MutationObserver(runCheck);
+    reconnectObserver.observe(document.documentElement || document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "hidden", "aria-hidden", "value"],
+    });
+
+    reconnectPollTimerId = window.setInterval(runCheck, 2000);
+    runCheck();
+  }
+
+  function stopReconnectWatcher() {
+    if (reconnectObserver) {
+      reconnectObserver.disconnect();
+      reconnectObserver = null;
+    }
+
+    if (reconnectPollTimerId) {
+      window.clearInterval(reconnectPollTimerId);
+      reconnectPollTimerId = null;
+    }
+  }
+
+  startReconnectWatcher();
+
   return {
     version: "0.3.0",
     addCleanup,
@@ -141,6 +262,7 @@ window.__minibiaBotBundle.createBot = function createBot() {
         this.ui.destroy();
       }
 
+      stopReconnectWatcher();
       destroyAlarmAudio();
       runCleanups();
     },
@@ -186,6 +308,9 @@ window.__minibiaBotBundle.createBot = function createBot() {
     },
     isRecentSentChat(text, withinMs) {
       return isRecentSentChat(text, withinMs);
+    },
+    clickReconnect() {
+      return tryClickReconnect();
     },
     clickHotbar(index) {
       const button = window.gameClient?.interface?.hotbarManager?.slots?.[index]?.canvas?.canvas;
