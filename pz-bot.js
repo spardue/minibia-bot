@@ -1767,6 +1767,14 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
     return String(value || "").trim().toLowerCase();
   }
 
+  function getTrustedNames() {
+    return new Set(
+      (bot.panic?.config?.trustedNames || [])
+        .map((name) => normalizeName(name))
+        .filter(Boolean)
+    );
+  }
+
   function sanitizeConfig() {
     config.provider = "gemini";
     config.apiKey = String(config.apiKey || "").trim();
@@ -1867,6 +1875,15 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
     return selfNames.has(normalizeName(message?.sender));
   }
 
+  function isTrustedMessage(message) {
+    const senderName = normalizeName(message?.sender);
+    if (!senderName) {
+      return false;
+    }
+
+    return getTrustedNames().has(senderName);
+  }
+
   function isBotRecentMessage(message) {
     const candidates = [message?.body, message?.rawMessage];
     return candidates.some((text) => bot.isRecentSentChat?.(text, 45000));
@@ -1933,6 +1950,11 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
     }
 
     if (isBotRecentMessage(message)) {
+      rememberSeenKey(message.key);
+      return false;
+    }
+
+    if (isTrustedMessage(message)) {
       rememberSeenKey(message.key);
       return false;
     }
