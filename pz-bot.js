@@ -1736,10 +1736,12 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
   const configStorageKey = "minibiaBot.talk.config";
   const defaultSystemPrompt =
     "You are a real player on a Tibia OT server called Minibia chatting in-game. Reply like a normal Tibia OT player with short, slightly broken grammar and casual wording. Always keep replies to one short sentence under 180 characters, plain text only, and no emojis. Never say or imply that you are an AI, assistant, language model, automation, script, or bot under any circumstances. If someone asks whether you are a bot, deny it briefly and stay in character as a player.";
+  const minPollMs = 20000;
   const state = {
     running: false,
     timerId: null,
     pending: false,
+    lastApiRequestAt: 0,
     lastReplyAt: 0,
     seenMessageKeys: [],
   };
@@ -1750,7 +1752,7 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
       provider: "gemini",
       apiKey: "",
       model: "gemini-2.5-flash",
-      pollMs: 2500,
+      pollMs: minPollMs,
       replyCooldownMs: 15000,
       systemPrompt: defaultSystemPrompt,
     },
@@ -1769,7 +1771,7 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
     config.provider = "gemini";
     config.apiKey = String(config.apiKey || "").trim();
     config.model = String(config.model || "gemini-2.5-flash").trim() || "gemini-2.5-flash";
-    config.pollMs = Math.max(1000, Number(config.pollMs) || 2500);
+    config.pollMs = Math.max(minPollMs, Number(config.pollMs) || minPollMs);
     config.replyCooldownMs = Math.max(0, Number(config.replyCooldownMs) || 15000);
     config.systemPrompt = String(config.systemPrompt || "").trim() || defaultSystemPrompt;
   }
@@ -2038,6 +2040,10 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
       return false;
     }
 
+    if (Date.now() - state.lastApiRequestAt < minPollMs) {
+      return false;
+    }
+
     const candidate = getChatMessages().slice().reverse().find(shouldReplyToMessage);
     if (!candidate) {
       return false;
@@ -2046,6 +2052,7 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
     state.pending = true;
 
     try {
+      state.lastApiRequestAt = Date.now();
       const contextMessages = getRecentContextMessages(candidate);
       const prompt = buildPrompt(candidate, contextMessages);
       const reply = sanitizeReply(await generateGeminiReply(prompt));
