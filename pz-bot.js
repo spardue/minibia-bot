@@ -1908,6 +1908,10 @@ window.__minibiaBotBundle.installTalkModule = function installTalkModule(bot) {
       return false;
     }
 
+    if (/^(?:munch|chomp|gulp|nom|slurp)[!.,]?$/.test(normalizedText)) {
+      return true;
+    }
+
     return (
       /\b(ate|eating|eat|drinking|drink|used|use|chomp|munch)\b/.test(normalizedText) &&
       /\b(food|ham|meat|fish|mushroom|egg|pear|shrimp|mana fluid|health potion|potion)\b/.test(normalizedText)
